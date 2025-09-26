@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SKU Scanner</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #000;
+            color: white;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .camera-container {
+            position: relative;
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #1a1a1a;
+        }
+
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .scan-frame {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 280px;
+            height: 80px;
+            border: 3px solid #00ff00;
+            border-radius: 8px;
+            background: rgba(0, 255, 0, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+        }
+
+        .scan-frame.scanning {
+            border-color: #ffaa00;
+            background: rgba(255, 170, 0, 0.1);
+            animation: pulse 1s infinite;
+        }
+
+        .scan-frame.found {
+            border-color: #00ff00;
+            background: rgba(0, 255, 0, 0.2);
+        }
+
+        .scan-frame.not-found {
+            border-color: #ff0000;
+            background: rgba(255, 0, 0, 0.2);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.8; }
+            50% { opacity: 1; }
+        }
+
+        .results-container {
+            height: 40%;
+            background: #1a1a1a;
+            padding: 20px;
+            border-top: 2px solid #333;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        h2 {
+            font-size: 20px;
+            color: #fff;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+        }
+
+        .file-input-wrapper input[type=file] {
+            position: absolute;
+            left: -9999px;
+        }
+
+        .file-input-label {
+            background: #007bff;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            border: none;
+            transition: background 0.2s;
+        }
+
+        .file-input-label:hover {
+            background: #0056b3;
+        }
+
+        .recent-skus {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .sku-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .sku-item.valid {
+            background: #28a745;
+            color: white;
+        }
+
+        .sku-item.invalid {
+            background: #dc3545;
+            color: white;
+        }
+
+        .sku-item.pending {
+            background: #6c757d;
+            color: white;
+        }
+
+        .timestamp {
+            font-size: 12px;
+            opacity: 0.8;
+            font-weight: normal;
+        }
+
+        .status {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-size: 14px;
+            z-index: 1000;
+        }
+
+        .canvas-hidden {
+            display: none;
+        }
+
+        @media (max-width: 480px) {
+            .scan-frame {
+                width: 250px;
+                height: 70px;
+                font-size: 16px;
+            }
+            
+            .results-container {
+                padding: 15px;
+            }
+            
+            .sku-item {
+                padding: 12px;
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="status" id="status">Initializing camera...</div>
+    
+    <div class="camera-container">
+        <video id="video" autoplay muted playsinline></video>
+        <div class="overlay">
+            <div class="scan-frame" id="scanFrame">Point camera at SKU</div>
+        </div>
+        <canvas id="canvas" class="canvas-hidden"></canvas>
+    </div>
+
+    <div class="results-container">
+        <div class="controls">
+            <h2>Recent SKUs</h2>
+            <div class="file-input-wrapper">
+                <input type="file" id="fileInput" accept=".txt,.csv">
+                <label for="fileInput" class="file-input-label">Load SKU List</label>
+            </div>
+        </div>
+        <div class="recent-skus" id="recentSkus">
+            <div class="sku-item pending">
+                <span>No SKUs scanned yet</span>
+                <span class="timestamp">Ready to scan</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class SKUScanner {
+            constructor() {
+                this.video = document.getElementById('video');
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.scanFrame = document.getElementById('scanFrame');
+                this.status = document.getElementById('status');
+                this.recentSkus = document.getElementById('recentSkus');
+                this.fileInput = document.getElementById('fileInput');
+                
+                this.validSKUs = new Set();
+                this.recentScans = [];
+                this.isScanning = false;
+                this.lastScannedSKU = null;
+                this.scanCooldown = false;
+                this.worker = null;
+                
+                this.init();
+            }
+
+            async init() {
+                await this.setupCamera();
+                await this.setupOCR();
+                this.setupFileInput();
+                this.startScanning();
+            }
+
+            async setupCamera() {
+                try {
+                    const constraints = {
+                        video: {
+                            facingMode: 'environment',
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        }
+                    };
+
+                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    this.video.srcObject = stream;
+                    
+                    this.video.addEventListener('loadedmetadata', () => {
+                        this.canvas.width = this.video.videoWidth;
+                        this.canvas.height = this.video.videoHeight;
+                        this.status.textContent = 'Camera ready';
+                    });
+                } catch (error) {
+                    this.status.textContent = 'Camera access denied';
+                    console.error('Camera setup error:', error);
+                }
+            }
+
+            async setupOCR() {
+                try {
+                    this.worker = await Tesseract.createWorker('eng');
+                    await this.worker.setParameters({
+                        tessedit_char_whitelist: '0123456789',
+                        tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE
+                    });
+                    this.status.textContent = 'OCR ready';
+                } catch (error) {
+                    this.status.textContent = 'OCR initialization failed';
+                    console.error('OCR setup error:', error);
+                }
+            }
+
+            setupFileInput() {
+                this.fileInput.addEventListener('change', (event) => {
+                    const file = event.target.files[0];
+                    if (file) {
+                        this.loadSKUList(file);
+                    }
+                });
+            }
+
+            loadSKUList(file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    const lines = text.split(/\r?\n/);
+                    this.validSKUs.clear();
+                    
+                    lines.forEach(line => {
+                        const sku = line.trim();
+                        if (sku && /^0\d{5}$/.test(sku)) {
+                            this.validSKUs.add(sku);
+                        }
+                    });
+                    
+                    this.status.textContent = `Loaded ${this.validSKUs.size} SKUs`;
+                    setTimeout(() => {
+                        this.status.textContent = 'Scanning...';
+                    }, 2000);
+                };
+                reader.readAsText(file);
+            }
+
+            startScanning() {
+                const scanInterval = setInterval(() => {
+                    if (!this.scanCooldown && this.video.readyState === 4 && this.worker) {
+                        this.scanForSKU();
+                    }
+                }, 1000);
+            }
+
+            async scanForSKU() {
+                if (this.isScanning) return;
+                
+                this.isScanning = true;
+                this.scanFrame.className = 'scan-frame scanning';
+                this.scanFrame.textContent = 'Scanning...';
+
+                try {
+                    // Capture frame from video
+                    this.ctx.drawImage(this.video, 0, 0);
+                    
+                    // Get region of interest (center area)
+                    const centerX = this.canvas.width / 2;
+                    const centerY = this.canvas.height / 2;
+                    const roiWidth = 280;
+                    const roiHeight = 80;
+                    
+                    const imageData = this.ctx.getImageData(
+                        centerX - roiWidth/2, 
+                        centerY - roiHeight/2, 
+                        roiWidth, 
+                        roiHeight
+                    );
+                    
+                    // Perform OCR
+                    const { data: { text } } = await this.worker.recognize(imageData);
+                    
+                    // Extract 6-digit numbers starting with 0
+                    const matches = text.match(/0\d{5}/g);
+                    
+                    if (matches && matches.length > 0) {
+                        const sku = matches[0];
+                        if (sku !== this.lastScannedSKU) {
+                            this.processSKU(sku);
+                            this.lastScannedSKU = sku;
+                            this.startCooldown();
+                        }
+                    } else {
+                        this.scanFrame.className = 'scan-frame';
+                        this.scanFrame.textContent = 'Point camera at SKU';
+                    }
+                } catch (error) {
+                    console.error('OCR error:', error);
+                    this.scanFrame.className = 'scan-frame';
+                    this.scanFrame.textContent = 'Scan error';
+                } finally {
+                    this.isScanning = false;
+                }
+            }
+
+            processSKU(sku) {
+                const isValid = this.validSKUs.has(sku);
+                const timestamp = new Date().toLocaleTimeString();
+                
+                // Update scan frame
+                this.scanFrame.className = isValid ? 'scan-frame found' : 'scan-frame not-found';
+                this.scanFrame.textContent = `${sku} - ${isValid ? 'VALID' : 'NOT FOUND'}`;
+                
+                // Add to recent scans
+                this.addRecentScan(sku, isValid, timestamp);
+                
+                // Provide audio feedback
+                this.playFeedbackSound(isValid);
+            }
+
+            addRecentScan(sku, isValid, timestamp) {
+                this.recentScans.unshift({ sku, isValid, timestamp });
+                
+                // Keep only last 3 scans
+                if (this.recentScans.length > 3) {
+                    this.recentScans.pop();
+                }
+                
+                this.updateRecentDisplay();
+            }
+
+            updateRecentDisplay() {
+                this.recentSkus.innerHTML = '';
+                
+                if (this.recentScans.length === 0) {
+                    this.recentSkus.innerHTML = `
+                        <div class="sku-item pending">
+                            <span>No SKUs scanned yet</span>
+                            <span class="timestamp">Ready to scan</span>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                this.recentScans.forEach(scan => {
+                    const div = document.createElement('div');
+                    div.className = `sku-item ${scan.isValid ? 'valid' : 'invalid'}`;
+                    div.innerHTML = `
+                        <span>${scan.sku} - ${scan.isValid ? 'VALID' : 'NOT FOUND'}</span>
+                        <span class="timestamp">${scan.timestamp}</span>
+                    `;
+                    this.recentSkus.appendChild(div);
+                });
+            }
+
+            startCooldown() {
+                this.scanCooldown = true;
+                setTimeout(() => {
+                    this.scanCooldown = false;
+                    this.scanFrame.className = 'scan-frame';
+                    this.scanFrame.textContent = 'Point camera at SKU';
+                    this.lastScannedSKU = null;
+                }, 2000);
+            }
+
+            playFeedbackSound(isValid) {
+                // Create audio context for feedback
+                try {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    
+                    oscillator.frequency.value = isValid ? 800 : 400;
+                    oscillator.type = 'sine';
+                    
+                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+                    
+                    oscillator.start(audioContext.currentTime);
+                    oscillator.stop(audioContext.currentTime + 0.3);
+                } catch (error) {
+                    // Audio feedback not available
+                }
+            }
+        }
+
+        // Initialize the scanner when page loads
+        window.addEventListener('load', () => {
+            new SKUScanner();
+        });
+
+        // Handle visibility changes to pause/resume scanning
+        document.addEventListener('visibilitychange', () => {
+            const status = document.getElementById('status');
+            if (document.hidden) {
+                status.textContent = 'App paused';
+            } else {
+                status.textContent = 'Scanning...';
+            }
+        });
+    </script>
+</body>
+</html>
