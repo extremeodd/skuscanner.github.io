@@ -372,9 +372,16 @@
                 
                 this.isScanning = true;
                 this.scanFrame.className = 'scan-frame scanning';
-                this.scanFrame.textContent = 'Scanning...';
+                this.scanFrame.textContent = 'Processing...';
 
                 try {
+                    // Check if video is ready
+                    if (this.video.readyState < 2) {
+                        this.scanFrame.textContent = 'Camera loading...';
+                        this.isScanning = false;
+                        return;
+                    }
+
                     // Capture frame from video
                     this.ctx.drawImage(this.video, 0, 0);
                     
@@ -391,40 +398,78 @@
                         roiHeight
                     );
                     
-                    // Enhance image for better OCR
-                    this.enhanceImageData(imageData);
-                    
                     if (this.worker && !this.useFallbackOCR) {
-                        // Perform OCR
-                        const { data: { text } } = await this.worker.recognize(imageData, {
-                            rectangle: { top: 0, left: 0, width: roiWidth, height: roiHeight }
-                        });
+                        this.scanFrame.textContent = 'Reading text...';
                         
-                        // Extract 6-digit numbers starting with 0
-                        const matches = text.match(/0\d{5}/g);
+                        // Perform OCR with simpler approach
+                        const result = await this.worker.recognize(imageData);
+                        const text = result.data.text.trim();
                         
-                        if (matches && matches.length > 0) {
-                            const sku = matches[0];
+                        console.log('OCR Result:', text); // Debug output
+                        this.status.textContent = `OCR: "${text}"`;
+                        
+                        // Extract any 6-digit numbers (not just starting with 0 for testing)
+                        const allNumbers = text.match(/\d{6}/g);
+                        const skuMatches = text.match(/0\d{5}/g);
+                        
+                        console.log('All 6-digit numbers found:', allNumbers);
+                        console.log('SKU matches (starting with 0):', skuMatches);
+                        
+                        if (skuMatches && skuMatches.length > 0) {
+                            const sku = skuMatches[0];
+                            this.scanFrame.textContent = `Found: ${sku}`;
+                            
                             if (sku !== this.lastScannedSKU) {
                                 this.processSKU(sku);
                                 this.lastScannedSKU = sku;
                                 this.startCooldown();
+                                return;
                             }
+                        } else if (allNumbers && allNumbers.length > 0) {
+                            // Show what we found for debugging
+                            this.scanFrame.textContent = `Found: ${allNumbers[0]} (not SKU format)`;
+                        } else if (text.length > 0) {
+                            this.scanFrame.textContent = `Text: ${text.substring(0, 10)}...`;
                         } else {
-                            this.scanFrame.className = 'scan-frame';
-                            this.scanFrame.textContent = 'Point camera at SKU';
+                            this.scanFrame.textContent = 'No text detected';
                         }
+                        
+                        // Auto-reset after showing result
+                        setTimeout(() => {
+                            if (!this.scanCooldown) {
+                                this.scanFrame.className = 'scan-frame';
+                                this.scanFrame.textContent = 'Point camera at SKU';
+                                this.status.textContent = 'Scanning...';
+                            }
+                        }, 1000);
+                        
                     } else {
-                        // Fallback mode - just show instructions
-                        this.scanFrame.className = 'scan-frame';
-                        this.scanFrame.textContent = 'Tap screen when SKU is visible';
+                        // Fallback mode - manual input
+                        this.showManualInput();
                     }
                 } catch (error) {
-                    console.error('OCR error:', error);
+                    console.error('OCR error details:', error);
                     this.scanFrame.className = 'scan-frame';
-                    this.scanFrame.textContent = 'Scan error - tap to retry';
+                    this.scanFrame.textContent = 'OCR failed - tap to retry';
+                    this.status.textContent = `Error: ${error.message}`;
+                    
+                    // Switch to fallback mode after repeated failures
+                    setTimeout(() => {
+                        this.useFallbackOCR = true;
+                        this.scanFrame.textContent = 'Switched to manual mode - tap to enter SKU';
+                    }, 2000);
                 } finally {
                     this.isScanning = false;
+                }
+            }
+
+            showManualInput() {
+                const sku = prompt('Enter 6-digit SKU (starting with 0):');
+                if (sku && /^0\d{5}$/.test(sku)) {
+                    this.processSKU(sku);
+                    this.startCooldown();
+                } else if (sku) {
+                    alert('Please enter a valid 6-digit SKU starting with 0');
                 }
             }
 
