@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SKU Scanner</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -245,6 +245,7 @@
                 this.lastScannedSKU = null;
                 this.scanCooldown = false;
                 this.worker = null;
+                this.useFallbackOCR = false;
                 
                 this.init();
             }
@@ -282,15 +283,41 @@
 
             async setupOCR() {
                 try {
-                    this.worker = await Tesseract.createWorker('eng');
+                    this.status.textContent = 'Loading OCR engine...';
+                    
+                    // Initialize Tesseract with mobile-optimized settings
+                    this.worker = await Tesseract.createWorker('eng', 1, {
+                        logger: m => {
+                            if (m.status === 'recognizing text') {
+                                this.status.textContent = `OCR Progress: ${Math.round(m.progress * 100)}%`;
+                            }
+                        }
+                    });
+
                     await this.worker.setParameters({
                         tessedit_char_whitelist: '0123456789',
-                        tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE
+                        tessedit_pageseg_mode: '8', // Single word mode
+                        tessedit_ocr_engine_mode: '1' // LSTM only
                     });
-                    this.status.textContent = 'OCR ready';
+                    
+                    this.status.textContent = 'OCR ready - Point camera at SKU';
+                    
+                    // Test OCR is working
+                    setTimeout(() => {
+                        this.status.textContent = 'Scanning...';
+                    }, 2000);
+                    
                 } catch (error) {
-                    this.status.textContent = 'OCR initialization failed';
+                    this.status.textContent = 'OCR failed - Using fallback method';
                     console.error('OCR setup error:', error);
+                    
+                    // Fallback to manual detection
+                    this.worker = null;
+                    this.useFallbackOCR = true;
+                    
+                    setTimeout(() => {
+                        this.status.textContent = 'Fallback mode - Tap screen when SKU visible';
+                    }, 2000);
                 }
             }
 
@@ -326,11 +353,18 @@
             }
 
             startScanning() {
-                const scanInterval = setInterval(() => {
-                    if (!this.scanCooldown && this.video.readyState === 4 && this.worker) {
+                // Add tap to scan fallback
+                this.video.addEventListener('click', () => {
+                    if (this.useFallbackOCR && !this.scanCooldown) {
                         this.scanForSKU();
                     }
-                }, 1000);
+                });
+
+                const scanInterval = setInterval(() => {
+                    if (!this.scanCooldown && this.video.readyState === 4 && this.worker && !this.useFallbackOCR) {
+                        this.scanForSKU();
+                    }
+                }, 2000); // Slower scanning for mobile
             }
 
             async scanForSKU() {
@@ -344,11 +378,11 @@
                     // Capture frame from video
                     this.ctx.drawImage(this.video, 0, 0);
                     
-                    // Get region of interest (center area)
+                    // Get region of interest (center area) - larger for mobile
                     const centerX = this.canvas.width / 2;
                     const centerY = this.canvas.height / 2;
-                    const roiWidth = 280;
-                    const roiHeight = 80;
+                    const roiWidth = Math.min(400, this.canvas.width * 0.8);
+                    const roiHeight = Math.min(120, this.canvas.height * 0.3);
                     
                     const imageData = this.ctx.getImageData(
                         centerX - roiWidth/2, 
@@ -357,29 +391,58 @@
                         roiHeight
                     );
                     
-                    // Perform OCR
-                    const { data: { text } } = await this.worker.recognize(imageData);
+                    // Enhance image for better OCR
+                    this.enhanceImageData(imageData);
                     
-                    // Extract 6-digit numbers starting with 0
-                    const matches = text.match(/0\d{5}/g);
-                    
-                    if (matches && matches.length > 0) {
-                        const sku = matches[0];
-                        if (sku !== this.lastScannedSKU) {
-                            this.processSKU(sku);
-                            this.lastScannedSKU = sku;
-                            this.startCooldown();
+                    if (this.worker && !this.useFallbackOCR) {
+                        // Perform OCR
+                        const { data: { text } } = await this.worker.recognize(imageData, {
+                            rectangle: { top: 0, left: 0, width: roiWidth, height: roiHeight }
+                        });
+                        
+                        // Extract 6-digit numbers starting with 0
+                        const matches = text.match(/0\d{5}/g);
+                        
+                        if (matches && matches.length > 0) {
+                            const sku = matches[0];
+                            if (sku !== this.lastScannedSKU) {
+                                this.processSKU(sku);
+                                this.lastScannedSKU = sku;
+                                this.startCooldown();
+                            }
+                        } else {
+                            this.scanFrame.className = 'scan-frame';
+                            this.scanFrame.textContent = 'Point camera at SKU';
                         }
                     } else {
+                        // Fallback mode - just show instructions
                         this.scanFrame.className = 'scan-frame';
-                        this.scanFrame.textContent = 'Point camera at SKU';
+                        this.scanFrame.textContent = 'Tap screen when SKU is visible';
                     }
                 } catch (error) {
                     console.error('OCR error:', error);
                     this.scanFrame.className = 'scan-frame';
-                    this.scanFrame.textContent = 'Scan error';
+                    this.scanFrame.textContent = 'Scan error - tap to retry';
                 } finally {
                     this.isScanning = false;
+                }
+            }
+
+            enhanceImageData(imageData) {
+                const data = imageData.data;
+                
+                // Simple contrast enhancement
+                for (let i = 0; i < data.length; i += 4) {
+                    // Convert to grayscale
+                    const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+                    
+                    // Increase contrast
+                    const enhanced = gray > 128 ? 255 : 0;
+                    
+                    data[i] = enhanced;     // Red
+                    data[i + 1] = enhanced; // Green
+                    data[i + 2] = enhanced; // Blue
+                    // Alpha stays the same
                 }
             }
 
