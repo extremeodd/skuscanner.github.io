@@ -454,42 +454,46 @@
                         console.log('Vision API detected text:', fullText);
                         console.log('All text annotations:', result.textAnnotations);
                         
-                        // Method 1: Look through individual text blocks for isolated 6-digit numbers
+                        // Method 1: Look through individual text blocks for isolated or embedded 6-digit numbers
                         let sku = null;
+                        let detectedText = '';
                         
                         // Check each detected text block
                         for (let i = 1; i < result.textAnnotations.length; i++) {
                             const textBlock = result.textAnnotations[i].description.trim();
+                            
                             // Look for exact 6-digit match starting with 0
                             if (/^0\d{5}$/.test(textBlock)) {
                                 sku = textBlock;
+                                detectedText = textBlock;
                                 console.log('Found isolated SKU:', sku);
+                                break;
+                            }
+                            
+                            // Look for 6-digit embedded in text (like "D01064712")
+                            const embeddedMatch = textBlock.match(/(0\d{5})/);
+                            if (embeddedMatch) {
+                                sku = embeddedMatch[1];
+                                detectedText = textBlock;
+                                console.log('Found embedded SKU:', sku, 'in text block:', textBlock);
                                 break;
                             }
                         }
                         
                         // Method 2: If not found, try pattern matching in full text
                         if (!sku) {
-                            // Look for pattern: space or start of line, then 0XXXXX, then space or end
-                            const patterns = [
-                                /(?:^|\s)(0\d{5})(?:\s|$)/m,  // Isolated 6-digit starting with 0
-                                /\n(0\d{5})\n/,               // On its own line
-                                /-\d{3}\s+(0\d{5})/,          // After format like "R233-124-d02 064712"
-                            ];
-                            
-                            for (const pattern of patterns) {
-                                const match = fullText.match(pattern);
-                                if (match) {
-                                    sku = match[1];
-                                    console.log('Found SKU via pattern:', sku);
-                                    break;
-                                }
+                            // Look for 6-digit number starting with 0
+                            const match = fullText.match(/(0\d{5})/);
+                            if (match) {
+                                sku = match[1];
+                                detectedText = match[0];
+                                console.log('Found SKU via full text pattern:', sku);
                             }
                         }
                         
                         if (sku) {
                             this.scanFrame.textContent = `Found: ${sku}`;
-                            this.status.textContent = `Detected: ${sku}`;
+                            this.status.textContent = `Detected: ${sku}${detectedText !== sku ? ` (from: ${detectedText})` : ''}`;
                             
                             if (sku !== this.lastScannedSKU) {
                                 this.processSKU(sku);
@@ -498,16 +502,19 @@
                                 return;
                             }
                         } else {
-                            // Show what was found for debugging
-                            const numbersOnly = fullText.replace(/\s+/g, '').replace(/[^0-9]/g, '');
+                            // Show what was found for debugging - add to recent scans
                             const allSixDigit = fullText.match(/\d{6}/g);
                             
                             if (allSixDigit && allSixDigit.length > 0) {
-                                this.scanFrame.textContent = `Saw: ${allSixDigit.join(', ')}`;
+                                const detectedNumbers = allSixDigit.join(', ');
+                                this.scanFrame.textContent = `Saw: ${detectedNumbers}`;
                                 this.status.textContent = 'Found numbers but no valid SKU format';
+                                // Add failed detection to recent scans
+                                this.addFailedScan(detectedNumbers);
                             } else {
                                 this.scanFrame.textContent = 'No 6-digit SKU found';
                                 this.status.textContent = `Text: ${fullText.substring(0, 40)}`;
+                                this.addFailedScan('No SKU detected');
                             }
                         }
                     } else {
@@ -582,7 +589,24 @@
             }
 
             addRecentScan(sku, isValid, timestamp) {
-                this.recentScans.unshift({ sku, isValid, timestamp });
+                this.recentScans.unshift({ sku, isValid, timestamp, type: 'scan' });
+                
+                // Keep only last 3 scans
+                if (this.recentScans.length > 3) {
+                    this.recentScans.pop();
+                }
+                
+                this.updateRecentDisplay();
+            }
+
+            addFailedScan(detectedText) {
+                const timestamp = new Date().toLocaleTimeString();
+                this.recentScans.unshift({ 
+                    sku: detectedText, 
+                    isValid: false, 
+                    timestamp, 
+                    type: 'failed' 
+                });
                 
                 // Keep only last 3 scans
                 if (this.recentScans.length > 3) {
@@ -608,11 +632,21 @@
                 
                 this.recentScans.forEach(scan => {
                     const div = document.createElement('div');
-                    div.className = `sku-item ${scan.isValid ? 'valid' : 'invalid'}`;
-                    div.innerHTML = `
-                        <span>${scan.sku} - ${scan.isValid ? 'VALID' : 'NOT FOUND'}</span>
-                        <span class="timestamp">${scan.timestamp}</span>
-                    `;
+                    
+                    if (scan.type === 'failed') {
+                        div.className = 'sku-item pending';
+                        div.innerHTML = `
+                            <span>Detected: ${scan.sku}</span>
+                            <span class="timestamp">${scan.timestamp}</span>
+                        `;
+                    } else {
+                        div.className = `sku-item ${scan.isValid ? 'valid' : 'invalid'}`;
+                        div.innerHTML = `
+                            <span>${scan.sku} - ${scan.isValid ? 'VALID' : 'NOT FOUND'}</span>
+                            <span class="timestamp">${scan.timestamp}</span>
+                        `;
+                    }
+                    
                     this.recentSkus.appendChild(div);
                 });
             }
