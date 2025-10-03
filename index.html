@@ -96,7 +96,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
             gap: 10px;
             flex-wrap: wrap;
         }
@@ -110,6 +110,53 @@
         .button-group {
             display: flex;
             gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .color-selector {
+            display: flex;
+            gap: 5px;
+            background: #2a2a2a;
+            padding: 5px;
+            border-radius: 6px;
+        }
+
+        .color-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 4px;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .color-btn.active {
+            border-color: #fff;
+            box-shadow: 0 0 10px rgba(255,255,255,0.5);
+        }
+
+        .color-btn.pink {
+            background: linear-gradient(135deg, #ff69b4, #ff1493);
+        }
+
+        .color-btn.blue {
+            background: linear-gradient(135deg, #4169e1, #1e90ff);
+        }
+
+        .color-btn.auto {
+            background: linear-gradient(135deg, #888, #aaa);
+            position: relative;
+        }
+
+        .color-btn.auto::after {
+            content: 'All';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 11px;
+            font-weight: bold;
+            color: white;
         }
 
         .btn {
@@ -247,6 +294,11 @@
         <div class="controls">
             <h2>Recent SKUs</h2>
             <div class="button-group">
+                <div class="color-selector">
+                    <button class="color-btn pink" id="pinkBtn" title="Pink background"></button>
+                    <button class="color-btn blue" id="blueBtn" title="Blue background"></button>
+                    <button class="color-btn auto active" id="autoBtn" title="All colors"></button>
+                </div>
                 <button class="btn scan-btn" id="scanBtn">Scan Now</button>
                 <div class="file-input-wrapper">
                     <input type="file" id="fileInput" accept=".txt,.csv">
@@ -257,7 +309,7 @@
         <div class="recent-skus" id="recentSkus">
             <div class="sku-item pending">
                 <span>No SKUs scanned yet</span>
-                <span class="timestamp">Ready to scan</span>
+                <span class="timestamp">Select color & scan</span>
             </div>
         </div>
     </div>
@@ -273,6 +325,9 @@
                 this.recentSkus = document.getElementById('recentSkus');
                 this.fileInput = document.getElementById('fileInput');
                 this.scanBtn = document.getElementById('scanBtn');
+                this.pinkBtn = document.getElementById('pinkBtn');
+                this.blueBtn = document.getElementById('blueBtn');
+                this.autoBtn = document.getElementById('autoBtn');
                 
                 this.validSKUs = new Set();
                 this.recentScans = [];
@@ -281,6 +336,7 @@
                 this.scanCooldown = false;
                 this.worker = null;
                 this.useFallbackOCR = false;
+                this.colorMode = 'auto'; // 'pink', 'blue', or 'auto'
                 
                 this.init();
             }
@@ -379,6 +435,35 @@
                         this.manualScan();
                     }
                 });
+
+                // Color mode selectors
+                this.pinkBtn.addEventListener('click', () => this.setColorMode('pink'));
+                this.blueBtn.addEventListener('click', () => this.setColorMode('blue'));
+                this.autoBtn.addEventListener('click', () => this.setColorMode('auto'));
+            }
+
+            setColorMode(mode) {
+                this.colorMode = mode;
+                
+                // Update button states
+                this.pinkBtn.classList.remove('active');
+                this.blueBtn.classList.remove('active');
+                this.autoBtn.classList.remove('active');
+                
+                if (mode === 'pink') {
+                    this.pinkBtn.classList.add('active');
+                    this.status.textContent = 'Pink mode - scanning for pink backgrounds';
+                } else if (mode === 'blue') {
+                    this.blueBtn.classList.add('active');
+                    this.status.textContent = 'Blue mode - scanning for blue backgrounds';
+                } else {
+                    this.autoBtn.classList.add('active');
+                    this.status.textContent = 'Auto mode - scanning all colors';
+                }
+
+                setTimeout(() => {
+                    this.status.textContent = 'Ready to scan';
+                }, 2000);
             }
 
             loadSKUList(file) {
@@ -448,15 +533,20 @@
                     // Capture full frame from video to main canvas
                     this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
                     
+                    // Apply color-specific preprocessing
+                    if (this.colorMode !== 'auto') {
+                        this.preprocessColoredBackground();
+                    }
+                    
                     if (this.worker && !this.useFallbackOCR) {
                         this.scanFrame.textContent = 'Reading text...';
                         
-                        // Convert canvas to blob WITHOUT preprocessing first
+                        // Convert canvas to blob
                         const blob = await new Promise(resolve => {
-                            this.canvas.toBlob(resolve, 'image/jpeg', 0.95);
+                            this.canvas.toBlob(resolve, 'image/png', 1.0);
                         });
                         
-                        // Perform OCR on the original image
+                        // Perform OCR on the image
                         const result = await this.worker.recognize(blob);
                         let text = result.data.text.replace(/\s+/g, '').replace(/[^0-9]/g, '').trim();
                         
@@ -493,7 +583,8 @@
                             } else if (result.data.text.length > 0) {
                                 this.scanFrame.textContent = `Raw: ${result.data.text.substring(0, 20)}`;
                             } else {
-                                this.scanFrame.textContent = 'Nothing detected - try better lighting';
+                                const colorHint = this.colorMode !== 'auto' ? ` Try ${this.colorMode === 'pink' ? 'blue' : 'pink'} mode?` : '';
+                                this.scanFrame.textContent = `Nothing detected${colorHint}`;
                             }
                         }
                         
@@ -519,8 +610,41 @@
                 }
             }
 
-            preprocessImage() {
-                // Removed - was causing image to become too small
+            preprocessColoredBackground() {
+                const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+                const data = imageData.data;
+                
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+                    
+                    let isBackground = false;
+                    
+                    if (this.colorMode === 'pink') {
+                        // Detect pink: high red, moderate green, moderate blue
+                        isBackground = r > 180 && g < 150 && b > 100 && r > b;
+                    } else if (this.colorMode === 'blue') {
+                        // Detect blue: low red, moderate green, high blue
+                        isBackground = r < 150 && g < 200 && b > 150 && b > r;
+                    }
+                    
+                    if (isBackground) {
+                        // Convert background to white
+                        data[i] = 255;
+                        data[i + 1] = 255;
+                        data[i + 2] = 255;
+                    } else {
+                        // Convert text to black (invert if needed)
+                        const avg = (r + g + b) / 3;
+                        const value = avg < 150 ? 0 : 255;
+                        data[i] = value;
+                        data[i + 1] = value;
+                        data[i + 2] = value;
+                    }
+                }
+                
+                this.ctx.putImageData(imageData, 0, 0);
             }
 
             async manualScan() {
