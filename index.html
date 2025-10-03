@@ -262,13 +262,25 @@
                     const constraints = {
                         video: {
                             facingMode: 'environment',
-                            width: { ideal: 1280 },
-                            height: { ideal: 720 }
+                            width: { ideal: 1920 },
+                            height: { ideal: 1080 },
+                            focusMode: 'continuous',
+                            focusDistance: { ideal: 0.15 } // Better for close-up scanning
                         }
                     };
 
                     const stream = await navigator.mediaDevices.getUserMedia(constraints);
                     this.video.srcObject = stream;
+                    
+                    // Try to enable autofocus if available
+                    const track = stream.getVideoTracks()[0];
+                    const capabilities = track.getCapabilities();
+                    
+                    if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
+                        track.applyConstraints({
+                            advanced: [{ focusMode: 'continuous' }]
+                        }).catch(e => console.log('Focus mode not applied:', e));
+                    }
                     
                     this.video.addEventListener('loadedmetadata', () => {
                         this.canvas.width = this.video.videoWidth;
@@ -296,7 +308,8 @@
 
                     await this.worker.setParameters({
                         tessedit_char_whitelist: '0123456789',
-                        tessedit_pageseg_mode: '8' // Single word mode
+                        tessedit_pageseg_mode: '7', // Treat as single line
+                        preserve_interword_spaces: '0'
                     });
                     
                     this.status.textContent = 'OCR ready - Point camera at SKU';
