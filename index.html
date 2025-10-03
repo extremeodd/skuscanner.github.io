@@ -208,13 +208,35 @@
 
         .sku-item {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex-direction: column;
+            gap: 5px;
             padding: 15px;
             border-radius: 8px;
-            font-size: 18px;
-            font-weight: bold;
+            font-size: 16px;
             transition: all 0.3s ease;
+        }
+
+        .sku-item .sku-line {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        .sku-item .description {
+            font-size: 14px;
+            opacity: 0.9;
+            font-weight: normal;
+        }
+
+        .sku-item .scan-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            opacity: 0.8;
+            margin-top: 5px;
         }
 
         .sku-item.valid {
@@ -223,6 +245,11 @@
         }
 
         .sku-item.invalid {
+            background: #dc3545;
+            color: white;
+        }
+
+        .sku-item.over-quota {
             background: #dc3545;
             color: white;
         }
@@ -323,6 +350,8 @@
                 this.apiKeyInput = document.getElementById('apiKeyInput');
                 
                 this.validSKUs = new Set();
+                this.skuQuotas = {}; // SKU -> max quantity mapping
+                this.skuCounts = {}; // SKU -> current scan count
                 this.recentScans = [];
                 this.isScanning = false;
                 this.lastScannedSKU = null;
@@ -407,11 +436,20 @@
                     const text = e.target.result;
                     const lines = text.split(/\r?\n/);
                     this.validSKUs.clear();
+                    this.skuQuotas = {};
                     
                     lines.forEach(line => {
-                        const sku = line.trim();
+                        const trimmed = line.trim();
+                        if (!trimmed) return;
+                        
+                        // Parse format: SKU,quantity or just SKU
+                        const parts = trimmed.split(',');
+                        const sku = parts[0].trim();
+                        const quantity = parts.length > 1 ? parseInt(parts[1].trim()) : 1;
+                        
                         if (sku && /^0\d{5}$/.test(sku)) {
                             this.validSKUs.add(sku);
+                            this.skuQuotas[sku] = quantity;
                         }
                     });
                     
@@ -457,6 +495,7 @@
                         // Method 1: Look through individual text blocks for isolated or embedded 6-digit numbers
                         let sku = null;
                         let detectedText = '';
+                        let skuIndex = -1;
                         
                         // Check each detected text block
                         for (let i = 1; i < result.textAnnotations.length; i++) {
@@ -466,6 +505,7 @@
                             if (/^0\d{5}$/.test(textBlock)) {
                                 sku = textBlock;
                                 detectedText = textBlock;
+                                skuIndex = i;
                                 console.log('Found isolated SKU:', sku);
                                 break;
                             }
@@ -475,6 +515,7 @@
                             if (embeddedMatch) {
                                 sku = embeddedMatch[1];
                                 detectedText = textBlock;
+                                skuIndex = i;
                                 console.log('Found embedded SKU:', sku, 'in text block:', textBlock);
                                 break;
                             }
@@ -491,12 +532,44 @@
                             }
                         }
                         
+                        // Extract description (text following the SKU)
+                        let description = '';
+                        if (sku && skuIndex > 0) {
+                            // Get next few text blocks after SKU as description
+                            const descParts = [];
+                            for (let i = skuIndex + 1; i < Math.min(skuIndex + 8, result.textAnnotations.length); i++) {
+                                const part = result.textAnnotations[i].description.trim();
+                                // Stop at numbers or short text
+                                if (/^\d+$/.test(part) || part.length < 2) continue;
+                                descParts.push(part);
+                                if (descParts.length >= 6) break; // Limit description length
+                            }
+                            description = descParts.join(' ');
+                        }
+                        
+                        // Fallback: extract description from full text
+                        if (!description && sku) {
+                            const lines = fullText.split('\n');
+                            for (const line of lines) {
+                                if (line.includes(sku)) {
+                                    // Get the line after the SKU line
+                                    const lineIndex = lines.indexOf(line);
+                                    if (lineIndex + 1 < lines.length) {
+                                        description = lines[lineIndex + 1].trim();
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        console.log('Extracted description:', description);
+                        
                         if (sku) {
                             this.scanFrame.textContent = `Found: ${sku}`;
                             this.status.textContent = `Detected: ${sku}${detectedText !== sku ? ` (from: ${detectedText})` : ''}`;
                             
                             if (sku !== this.lastScannedSKU) {
-                                this.processSKU(sku);
+                                this.processSKU(sku, description);
                                 this.lastScannedSKU = sku;
                                 this.startCooldown();
                                 return;
@@ -510,11 +583,11 @@
                                 this.scanFrame.textContent = `Saw: ${detectedNumbers}`;
                                 this.status.textContent = 'Found numbers but no valid SKU format';
                                 // Add failed detection to recent scans
-                                this.addFailedScan(detectedNumbers);
+                                this.addFailedScan(detectedNumbers, '');
                             } else {
                                 this.scanFrame.textContent = 'No 6-digit SKU found';
                                 this.status.textContent = `Text: ${fullText.substring(0, 40)}`;
-                                this.addFailedScan('No SKU detected');
+                                this.addFailedScan('No SKU detected', '');
                             }
                         }
                     } else {
@@ -573,44 +646,96 @@
                 return data.responses[0];
             }
 
-            processSKU(sku) {
-                const isValid = this.validSKUs.size === 0 || this.validSKUs.has(sku);
+            processSKU(sku, description = '') {
+                // Increment scan count
+                if (!this.skuCounts[sku]) {
+                    this.skuCounts[sku] = 0;
+                }
+                this.skuCounts[sku]++;
+                
+                const scanCount = this.skuCounts[sku];
+                const onList = this.validSKUs.has(sku);
+                const quota = this.skuQuotas[sku] || 0;
+                
+                // Determine status
+                let status, isValid;
+                if (onList) {
+                    if (scanCount <= quota) {
+                        status = 'TO FLOOR';
+                        isValid = true; // Green
+                    } else {
+                        status = 'BACKSTOCK';
+                        isValid = false; // Red (over quota)
+                    }
+                } else {
+                    status = 'NOT ON LIST';
+                    isValid = false; // Red (not on list)
+                }
+                
                 const timestamp = new Date().toLocaleTimeString();
                 
                 // Update scan frame
                 this.scanFrame.className = isValid ? 'scan-frame found' : 'scan-frame not-found';
-                this.scanFrame.textContent = `${sku} - ${isValid ? 'VALID' : 'NOT FOUND'}`;
+                this.scanFrame.textContent = `${sku} - ${status}`;
                 
                 // Add to recent scans
-                this.addRecentScan(sku, isValid, timestamp);
+                this.addRecentScan(sku, description, status, isValid, timestamp, scanCount, quota);
                 
                 // Provide audio feedback
                 this.playFeedbackSound(isValid);
             }
 
-            addRecentScan(sku, isValid, timestamp) {
-                this.recentScans.unshift({ sku, isValid, timestamp, type: 'scan' });
+            addRecentScan(sku, description, status, isValid, timestamp, scanCount, quota) {
+                // Check if this SKU already exists in recent scans
+                const existingIndex = this.recentScans.findIndex(s => s.sku === sku && s.type === 'scan');
                 
-                // Keep only last 3 scans
-                if (this.recentScans.length > 3) {
-                    this.recentScans.pop();
+                if (existingIndex >= 0) {
+                    // Update existing entry
+                    this.recentScans[existingIndex] = { 
+                        sku, 
+                        description,
+                        status,
+                        isValid, 
+                        timestamp, 
+                        scanCount,
+                        quota,
+                        type: 'scan' 
+                    };
+                } else {
+                    // Add new entry
+                    this.recentScans.unshift({ 
+                        sku, 
+                        description,
+                        status,
+                        isValid, 
+                        timestamp, 
+                        scanCount,
+                        quota,
+                        type: 'scan' 
+                    });
+                }
+                
+                // Keep only last 10 scans
+                if (this.recentScans.length > 10) {
+                    this.recentScans = this.recentScans.slice(0, 10);
                 }
                 
                 this.updateRecentDisplay();
             }
 
-            addFailedScan(detectedText) {
+            addFailedScan(detectedText, description) {
                 const timestamp = new Date().toLocaleTimeString();
                 this.recentScans.unshift({ 
-                    sku: detectedText, 
+                    sku: detectedText,
+                    description,
                     isValid: false, 
                     timestamp, 
                     type: 'failed' 
                 });
                 
-                // Keep only last 3 scans
-                if (this.recentScans.length > 3) {
-                    this.recentScans.pop();
+                // Keep only last 10 scans
+                if (this.recentScans.length > 10) {
+                    this.recentScans = this.recentScans.slice(0, 10);
                 }
                 
                 this.updateRecentDisplay();
@@ -623,8 +748,10 @@
                     const message = this.apiKey ? 'No SKUs scanned yet' : 'Enter API key to start';
                     this.recentSkus.innerHTML = `
                         <div class="sku-item pending">
-                            <span>${message}</span>
-                            <span class="timestamp">Ready to scan</span>
+                            <div class="sku-line">
+                                <span>${message}</span>
+                                <span class="timestamp">Ready to scan</span>
+                            </div>
                         </div>
                     `;
                     return;
@@ -636,14 +763,27 @@
                     if (scan.type === 'failed') {
                         div.className = 'sku-item pending';
                         div.innerHTML = `
-                            <span>Detected: ${scan.sku}</span>
-                            <span class="timestamp">${scan.timestamp}</span>
+                            <div class="sku-line">
+                                <span>Detected: ${scan.sku}</span>
+                                <span class="timestamp">${scan.timestamp}</span>
+                            </div>
                         `;
                     } else {
-                        div.className = `sku-item ${scan.isValid ? 'valid' : 'invalid'}`;
+                        const className = scan.isValid ? 'valid' : (scan.status === 'BACKSTOCK' ? 'over-quota' : 'invalid');
+                        div.className = `sku-item ${className}`;
+                        
+                        const quotaInfo = scan.quota > 0 ? ` (${scan.scanCount}/${scan.quota})` : '';
+                        const scanCountDisplay = scan.scanCount > 1 ? ` x${scan.scanCount}` : '';
+                        
                         div.innerHTML = `
-                            <span>${scan.sku} - ${scan.isValid ? 'VALID' : 'NOT FOUND'}</span>
-                            <span class="timestamp">${scan.timestamp}</span>
+                            <div class="sku-line">
+                                <span>${scan.sku}${scanCountDisplay} - ${scan.status}</span>
+                            </div>
+                            ${scan.description ? `<div class="description">${scan.description}</div>` : ''}
+                            <div class="scan-info">
+                                <span>${quotaInfo}</span>
+                                <span class="timestamp">${scan.timestamp}</span>
+                            </div>
                         `;
                     }
                     
