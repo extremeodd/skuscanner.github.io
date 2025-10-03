@@ -452,16 +452,42 @@
                     if (result && result.textAnnotations && result.textAnnotations.length > 0) {
                         const fullText = result.textAnnotations[0].description;
                         console.log('Vision API detected text:', fullText);
+                        console.log('All text annotations:', result.textAnnotations);
                         
-                        // Extract numbers only
-                        const numbersOnly = fullText.replace(/\s+/g, '').replace(/[^0-9]/g, '');
-                        console.log('Numbers extracted:', numbersOnly);
+                        // Method 1: Look through individual text blocks for isolated 6-digit numbers
+                        let sku = null;
                         
-                        // Look for 6-digit SKU starting with 0
-                        const skuMatches = numbersOnly.match(/0\d{5}/g);
+                        // Check each detected text block
+                        for (let i = 1; i < result.textAnnotations.length; i++) {
+                            const textBlock = result.textAnnotations[i].description.trim();
+                            // Look for exact 6-digit match starting with 0
+                            if (/^0\d{5}$/.test(textBlock)) {
+                                sku = textBlock;
+                                console.log('Found isolated SKU:', sku);
+                                break;
+                            }
+                        }
                         
-                        if (skuMatches && skuMatches.length > 0) {
-                            const sku = skuMatches[0];
+                        // Method 2: If not found, try pattern matching in full text
+                        if (!sku) {
+                            // Look for pattern: space or start of line, then 0XXXXX, then space or end
+                            const patterns = [
+                                /(?:^|\s)(0\d{5})(?:\s|$)/m,  // Isolated 6-digit starting with 0
+                                /\n(0\d{5})\n/,               // On its own line
+                                /-\d{3}\s+(0\d{5})/,          // After format like "R233-124-d02 064712"
+                            ];
+                            
+                            for (const pattern of patterns) {
+                                const match = fullText.match(pattern);
+                                if (match) {
+                                    sku = match[1];
+                                    console.log('Found SKU via pattern:', sku);
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if (sku) {
                             this.scanFrame.textContent = `Found: ${sku}`;
                             this.status.textContent = `Detected: ${sku}`;
                             
@@ -473,15 +499,16 @@
                             }
                         } else {
                             // Show what was found for debugging
-                            const allNumbers = numbersOnly.match(/\d{6}/g);
-                            if (allNumbers && allNumbers.length > 0) {
-                                this.scanFrame.textContent = `Saw: ${allNumbers[0]} (wrong format)`;
-                            } else if (numbersOnly.length > 0) {
-                                this.scanFrame.textContent = `Found: ${numbersOnly} (not 6 digits)`;
+                            const numbersOnly = fullText.replace(/\s+/g, '').replace(/[^0-9]/g, '');
+                            const allSixDigit = fullText.match(/\d{6}/g);
+                            
+                            if (allSixDigit && allSixDigit.length > 0) {
+                                this.scanFrame.textContent = `Saw: ${allSixDigit.join(', ')}`;
+                                this.status.textContent = 'Found numbers but no valid SKU format';
                             } else {
-                                this.scanFrame.textContent = 'No SKU detected';
+                                this.scanFrame.textContent = 'No 6-digit SKU found';
+                                this.status.textContent = `Text: ${fullText.substring(0, 40)}`;
                             }
-                            this.status.textContent = `Detected text: ${fullText.substring(0, 30)}`;
                         }
                     } else {
                         this.scanFrame.textContent = 'No text detected';
