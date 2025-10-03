@@ -23,7 +23,8 @@
 
         .camera-container {
             position: relative;
-            flex: 1;
+            height: 45vh;
+            max-height: 400px;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -87,7 +88,7 @@
         }
 
         .results-container {
-            height: 40%;
+            flex: 1;
             background: #1a1a1a;
             padding: 20px;
             border-top: 2px solid #333;
@@ -175,10 +176,17 @@
             background: #2a2a2a;
             padding: 15px;
             border-radius: 8px;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
 
-        .api-key-section input {
+        .api-key-section label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .api-key-section input,
+        .api-key-section textarea {
             width: 100%;
             padding: 10px;
             background: #1a1a1a;
@@ -186,10 +194,17 @@
             border-radius: 6px;
             color: white;
             font-size: 14px;
-            margin-top: 10px;
+            margin-top: 5px;
+            font-family: monospace;
         }
 
-        .api-key-section input:focus {
+        .api-key-section textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .api-key-section input:focus,
+        .api-key-section textarea:focus {
             outline: none;
             border-color: #007bff;
         }
@@ -198,6 +213,12 @@
             color: #aaa;
             display: block;
             margin-top: 5px;
+        }
+
+        .api-key-section .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
         }
 
         .recent-skus {
@@ -318,14 +339,20 @@
             <small>Get your free API key from <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color: #4da6ff;">Google Cloud Console</a></small>
         </div>
 
+        <div class="api-key-section">
+            <label for="skuListInput"><strong>Backstock List (SKU,Quantity per line):</strong></label>
+            <textarea id="skuListInput" placeholder="064712,2&#10;096551,1&#10;012345,3"></textarea>
+            <small>Format: SKU,Quantity (one per line). Items on this list = BACKSTOCK (red)</small>
+            <div class="btn-group">
+                <button class="btn" id="saveListBtn">Save List</button>
+                <button class="btn" id="clearListBtn" style="background: #dc3545;">Clear List</button>
+            </div>
+        </div>
+
         <div class="controls">
             <h2>Recent SKUs</h2>
             <div class="button-group">
                 <button class="btn scan-btn" id="scanBtn" disabled>Scan Now</button>
-                <div class="file-input-wrapper">
-                    <input type="file" id="fileInput" accept=".txt,.csv">
-                    <label for="fileInput" class="file-input-label">Load List</label>
-                </div>
             </div>
         </div>
         <div class="recent-skus" id="recentSkus">
@@ -345,9 +372,11 @@
                 this.scanFrame = document.getElementById('scanFrame');
                 this.status = document.getElementById('status');
                 this.recentSkus = document.getElementById('recentSkus');
-                this.fileInput = document.getElementById('fileInput');
                 this.scanBtn = document.getElementById('scanBtn');
                 this.apiKeyInput = document.getElementById('apiKeyInput');
+                this.skuListInput = document.getElementById('skuListInput');
+                this.saveListBtn = document.getElementById('saveListBtn');
+                this.clearListBtn = document.getElementById('clearListBtn');
                 
                 this.validSKUs = new Set();
                 this.skuQuotas = {}; // SKU -> max quantity mapping
@@ -378,8 +407,11 @@
                 });
 
                 await this.setupCamera();
-                this.setupFileInput();
+                this.setupSKUList();
                 this.setupScanButton();
+                
+                // Load saved SKU list
+                this.loadSKUListFromStorage();
             }
 
             async setupCamera() {
@@ -510,13 +542,13 @@
                                 break;
                             }
                             
-                            // Look for 6-digit embedded in text (like "D01064712")
-                            const embeddedMatch = textBlock.match(/(0\d{5})/);
+                            // Look for 6-digit embedded after letter-number-number pattern (like "D01064712")
+                            const embeddedMatch = textBlock.match(/[a-zA-Z]\d{2}(0\d{5})/i);
                             if (embeddedMatch) {
                                 sku = embeddedMatch[1];
                                 detectedText = textBlock;
                                 skuIndex = i;
-                                console.log('Found embedded SKU:', sku, 'in text block:', textBlock);
+                                console.log('Found SKU after letter-number-number:', sku, 'in text block:', textBlock);
                                 break;
                             }
                         }
@@ -654,22 +686,22 @@
                 this.skuCounts[sku]++;
                 
                 const scanCount = this.skuCounts[sku];
-                const onList = this.validSKUs.has(sku);
+                const onBackstockList = this.validSKUs.has(sku);
                 const quota = this.skuQuotas[sku] || 0;
                 
-                // Determine status
+                // Determine status - REVERSED LOGIC
                 let status, isValid;
-                if (onList) {
+                if (onBackstockList) {
                     if (scanCount <= quota) {
-                        status = 'TO FLOOR';
-                        isValid = true; // Green
-                    } else {
                         status = 'BACKSTOCK';
-                        isValid = false; // Red (over quota)
+                        isValid = false; // Red (needs to go to backstock)
+                    } else {
+                        status = 'FLOOR STOCK';
+                        isValid = true; // Green (over quota, goes to floor)
                     }
                 } else {
-                    status = 'NOT ON LIST';
-                    isValid = false; // Red (not on list)
+                    status = 'FLOOR STOCK';
+                    isValid = true; // Green (not on backstock list)
                 }
                 
                 const timestamp = new Date().toLocaleTimeString();
@@ -769,7 +801,7 @@
                             </div>
                         `;
                     } else {
-                        const className = scan.isValid ? 'valid' : (scan.status === 'BACKSTOCK' ? 'over-quota' : 'invalid');
+                        const className = scan.isValid ? 'valid' : 'invalid';
                         div.className = `sku-item ${className}`;
                         
                         const quotaInfo = scan.quota > 0 ? ` (${scan.scanCount}/${scan.quota})` : '';
