@@ -1,4 +1,21 @@
-<!DOCTYPE html>
+.api-key-section {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+
+        .api-key-section label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .api-key-section input {
+            width: 100%;
+            padding: 10px;
+            background: #1a1a1a;
+            border: 2px solid #555<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -176,17 +193,10 @@
             background: #2a2a2a;
             padding: 15px;
             border-radius: 8px;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
         }
 
-        .api-key-section label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-        }
-
-        .api-key-section input,
-        .api-key-section textarea {
+        .api-key-section input {
             width: 100%;
             padding: 10px;
             background: #1a1a1a;
@@ -194,17 +204,10 @@
             border-radius: 6px;
             color: white;
             font-size: 14px;
-            margin-top: 5px;
-            font-family: monospace;
+            margin-top: 10px;
         }
 
-        .api-key-section textarea {
-            min-height: 100px;
-            resize: vertical;
-        }
-
-        .api-key-section input:focus,
-        .api-key-section textarea:focus {
+        .api-key-section input:focus {
             outline: none;
             border-color: #007bff;
         }
@@ -215,10 +218,32 @@
             margin-top: 5px;
         }
 
-        .api-key-section .btn-group {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+        }
+
+        .file-input-wrapper input[type=file] {
+            position: absolute;
+            left: -9999px;
+        }
+
+        .file-input-label {
+            background: #007bff;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            border: none;
+            transition: background 0.2s;
+            display: inline-block;
+            font-weight: 500;
+        }
+
+        .file-input-label:hover {
+            background: #0056b3;
         }
 
         .recent-skus {
@@ -339,20 +364,14 @@
             <small>Get your free API key from <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color: #4da6ff;">Google Cloud Console</a></small>
         </div>
 
-        <div class="api-key-section">
-            <label for="skuListInput"><strong>Backstock List (SKU,Quantity per line):</strong></label>
-            <textarea id="skuListInput" placeholder="064712,2&#10;096551,1&#10;012345,3"></textarea>
-            <small>Format: SKU,Quantity (one per line). Items on this list = BACKSTOCK (red)</small>
-            <div class="btn-group">
-                <button class="btn" id="saveListBtn">Save List</button>
-                <button class="btn" id="clearListBtn" style="background: #dc3545;">Clear List</button>
-            </div>
-        </div>
-
         <div class="controls">
             <h2>Recent SKUs</h2>
             <div class="button-group">
                 <button class="btn scan-btn" id="scanBtn" disabled>Scan Now</button>
+                <div class="file-input-wrapper">
+                    <input type="file" id="fileInput" accept=".txt,.csv">
+                    <label for="fileInput" class="file-input-label">Load Backstock List</label>
+                </div>
             </div>
         </div>
         <div class="recent-skus" id="recentSkus">
@@ -374,9 +393,7 @@
                 this.recentSkus = document.getElementById('recentSkus');
                 this.scanBtn = document.getElementById('scanBtn');
                 this.apiKeyInput = document.getElementById('apiKeyInput');
-                this.skuListInput = document.getElementById('skuListInput');
-                this.saveListBtn = document.getElementById('saveListBtn');
-                this.clearListBtn = document.getElementById('clearListBtn');
+                this.fileInput = document.getElementById('fileInput');
                 
                 this.validSKUs = new Set();
                 this.skuQuotas = {}; // SKU -> max quantity mapping
@@ -407,11 +424,8 @@
                 });
 
                 await this.setupCamera();
-                this.setupSKUListInput();
+                this.setupFileInput();
                 this.setupScanButton();
-                
-                // Load saved SKU list
-                this.loadSKUListFromStorage();
             }
 
             async setupCamera() {
