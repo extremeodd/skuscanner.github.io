@@ -584,8 +584,14 @@
                             const descParts = [];
                             for (let i = skuIndex + 1; i < Math.min(skuIndex + 8, result.textAnnotations.length); i++) {
                                 const part = result.textAnnotations[i].description.trim();
-                                // Stop at numbers or short text
-                                if (/^\d+$/.test(part) || part.length < 2) continue;
+                                
+                                // Stop at numbers (like "0235") or location indicators
+                                if (/^\d+$/.test(part)) break;
+                                if (/^(WESTLAND|MI)$/i.test(part)) break;
+                                
+                                // Skip short text or single characters
+                                if (part.length < 2) continue;
+                                
                                 descParts.push(part);
                                 if (descParts.length >= 6) break; // Limit description length
                             }
@@ -600,7 +606,11 @@
                                     // Get the line after the SKU line
                                     const lineIndex = lines.indexOf(line);
                                     if (lineIndex + 1 < lines.length) {
-                                        description = lines[lineIndex + 1].trim();
+                                        const nextLine = lines[lineIndex + 1].trim();
+                                        // Filter out location info
+                                        if (!/^(0235|WESTLAND|MI)/i.test(nextLine)) {
+                                            description = nextLine;
+                                        }
                                     }
                                     break;
                                 }
