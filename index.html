@@ -10,7 +10,6 @@
             padding: 0;
             box-sizing: border-box;
         }
-
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #000;
@@ -20,7 +19,6 @@
             flex-direction: column;
             overflow: hidden;
         }
-
         .camera-container {
             position: relative;
             height: 45vh;
@@ -30,13 +28,11 @@
             align-items: center;
             background: #1a1a1a;
         }
-
         #video {
             width: 100%;
             height: 100%;
             object-fit: cover;
         }
-
         .overlay {
             position: absolute;
             top: 0;
@@ -45,7 +41,6 @@
             height: 100%;
             pointer-events: none;
         }
-
         .scan-frame {
             position: absolute;
             top: 50%;
@@ -65,28 +60,23 @@
             text-align: center;
             padding: 10px;
         }
-
         .scan-frame.scanning {
             border-color: #ffaa00;
             background: rgba(255, 170, 0, 0.1);
             animation: pulse 1s infinite;
         }
-
         .scan-frame.found {
             border-color: #00ff00;
             background: rgba(0, 255, 0, 0.2);
         }
-
         .scan-frame.not-found {
             border-color: #ff0000;
             background: rgba(255, 0, 0, 0.2);
         }
-
         @keyframes pulse {
             0%, 100% { opacity: 0.8; }
             50% { opacity: 1; }
         }
-
         .results-container {
             flex: 1;
             background: #1a1a1a;
@@ -94,7 +84,6 @@
             border-top: 2px solid #333;
             overflow-y: auto;
         }
-
         .controls {
             display: flex;
             justify-content: space-between;
@@ -103,18 +92,15 @@
             gap: 10px;
             flex-wrap: wrap;
         }
-
         h2 {
             font-size: 20px;
             color: #fff;
         }
-
         .button-group {
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
         }
-
         .btn {
             background: #007bff;
             color: white;
@@ -126,35 +112,35 @@
             transition: background 0.2s;
             font-weight: 500;
         }
-
         .btn:hover {
             background: #0056b3;
         }
-
         .btn.scan-btn {
             background: #28a745;
         }
-
         .btn.scan-btn:hover {
             background: #218838;
         }
-
+        .btn.reset-btn {
+            background: #ffc107;
+            color: #000;
+        }
+        .btn.reset-btn:hover {
+            background: #e0a800;
+        }
         .btn:disabled {
             background: #666;
             cursor: not-allowed;
         }
-
         .file-input-wrapper {
             position: relative;
             overflow: hidden;
             display: inline-block;
         }
-
         .file-input-wrapper input[type=file] {
             position: absolute;
             left: -9999px;
         }
-
         .file-input-label {
             background: #007bff;
             color: white;
@@ -167,18 +153,15 @@
             display: inline-block;
             font-weight: 500;
         }
-
         .file-input-label:hover {
             background: #0056b3;
         }
-
         .api-key-section {
             background: #2a2a2a;
             padding: 15px;
             border-radius: 8px;
             margin-bottom: 20px;
         }
-
         .api-key-section input {
             width: 100%;
             padding: 10px;
@@ -189,68 +172,20 @@
             font-size: 14px;
             margin-top: 10px;
         }
-
         .api-key-section input:focus {
             outline: none;
             border-color: #007bff;
         }
-
-        .api-key-section small {
-            color: #aaa;
-            display: block;
-            margin-top: 5px;
-        };
-            border-radius: 6px;
-            color: white;
-            font-size: 14px;
-            margin-top: 10px;
-        }
-
-        .api-key-section input:focus {
-            outline: none;
-            border-color: #007bff;
-        }
-
         .api-key-section small {
             color: #aaa;
             display: block;
             margin-top: 5px;
         }
-
-        .file-input-wrapper {
-            position: relative;
-            overflow: hidden;
-            display: inline-block;
-        }
-
-        .file-input-wrapper input[type=file] {
-            position: absolute;
-            left: -9999px;
-        }
-
-        .file-input-label {
-            background: #007bff;
-            color: white;
-            padding: 10px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            border: none;
-            transition: background 0.2s;
-            display: inline-block;
-            font-weight: 500;
-        }
-
-        .file-input-label:hover {
-            background: #0056b3;
-        }
-
         .recent-skus {
             display: flex;
             flex-direction: column;
             gap: 10px;
         }
-
         .sku-item {
             display: flex;
             flex-direction: column;
@@ -260,7 +195,6 @@
             font-size: 16px;
             transition: all 0.3s ease;
         }
-
         .sku-item .sku-line {
             display: flex;
             justify-content: space-between;
@@ -268,13 +202,11 @@
             font-weight: bold;
             font-size: 18px;
         }
-
         .sku-item .description {
             font-size: 14px;
             opacity: 0.9;
             font-weight: normal;
         }
-
         .sku-item .scan-info {
             display: flex;
             justify-content: space-between;
@@ -283,33 +215,23 @@
             opacity: 0.8;
             margin-top: 5px;
         }
-
         .sku-item.valid {
             background: #28a745;
             color: white;
         }
-
         .sku-item.invalid {
             background: #dc3545;
             color: white;
         }
-
-        .sku-item.over-quota {
-            background: #dc3545;
-            color: white;
-        }
-
         .sku-item.pending {
             background: #6c757d;
             color: white;
         }
-
         .timestamp {
             font-size: 12px;
             opacity: 0.8;
             font-weight: normal;
         }
-
         .status {
             position: fixed;
             top: 20px;
@@ -322,11 +244,9 @@
             z-index: 1000;
             text-align: center;
         }
-
         .canvas-hidden {
             display: none;
         }
-
         @media (max-width: 480px) {
             .scan-frame {
                 width: 250px;
@@ -355,18 +275,17 @@
         </div>
         <canvas id="canvas" class="canvas-hidden"></canvas>
     </div>
-
     <div class="results-container">
         <div class="api-key-section" id="apiKeySection">
             <label for="apiKeyInput"><strong>Google Cloud Vision API Key:</strong></label>
             <input type="password" id="apiKeyInput" placeholder="Enter your API key here">
             <small>Get your free API key from <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color: #4da6ff;">Google Cloud Console</a></small>
         </div>
-
         <div class="controls">
             <h2>Recent SKUs</h2>
             <div class="button-group">
                 <button class="btn scan-btn" id="scanBtn" disabled>Scan Now</button>
+                <button class="btn reset-btn" id="resetBtn">Reset Counts</button>
                 <div class="file-input-wrapper">
                     <input type="file" id="fileInput" accept=".txt,.csv">
                     <label for="fileInput" class="file-input-label">Load Backstock List</label>
@@ -380,7 +299,6 @@
             </div>
         </div>
     </div>
-
     <script>
         class SKUScanner {
             constructor() {
@@ -393,10 +311,11 @@
                 this.scanBtn = document.getElementById('scanBtn');
                 this.apiKeyInput = document.getElementById('apiKeyInput');
                 this.fileInput = document.getElementById('fileInput');
+                this.resetBtn = document.getElementById('resetBtn');
                 
                 this.validSKUs = new Set();
-                this.skuQuotas = {}; // SKU -> max quantity mapping
-                this.skuCounts = {}; // SKU -> current scan count
+                this.skuQuotas = {};
+                this.skuCounts = {};
                 this.recentScans = [];
                 this.isScanning = false;
                 this.lastScannedSKU = null;
@@ -405,14 +324,11 @@
                 
                 this.init();
             }
-
             async init() {
-                // Load saved API key
                 if (this.apiKey) {
                     this.apiKeyInput.value = this.apiKey;
                     this.scanBtn.disabled = false;
                 }
-
                 this.apiKeyInput.addEventListener('input', (e) => {
                     this.apiKey = e.target.value.trim();
                     localStorage.setItem('visionApiKey', this.apiKey);
@@ -421,12 +337,12 @@
                         this.updateRecentDisplay();
                     }
                 });
-
                 await this.setupCamera();
                 this.setupFileInput();
                 this.setupScanButton();
+                this.setupResetButton();
+                this.loadScanCounts();
             }
-
             async setupCamera() {
                 try {
                     const constraints = {
@@ -436,7 +352,6 @@
                             height: { ideal: 1080 }
                         }
                     };
-
                     const stream = await navigator.mediaDevices.getUserMedia(constraints);
                     this.video.srcObject = stream;
                     
@@ -450,7 +365,6 @@
                     console.error('Camera setup error:', error);
                 }
             }
-
             setupFileInput() {
                 this.fileInput.addEventListener('change', (event) => {
                     const file = event.target.files[0];
@@ -459,22 +373,58 @@
                     }
                 });
             }
-
             setupScanButton() {
                 this.scanBtn.addEventListener('click', () => {
                     if (!this.scanCooldown && this.apiKey) {
                         this.scanForSKU();
                     }
                 });
-
-                // Also allow clicking video to scan
                 this.video.addEventListener('click', () => {
                     if (!this.scanCooldown && this.apiKey) {
                         this.scanForSKU();
                     }
                 });
             }
-
+            setupResetButton() {
+                this.resetBtn.addEventListener('click', () => {
+                    if (confirm('Reset all scan counts? This will clear your scanning progress.')) {
+                        this.skuCounts = {};
+                        this.recentScans = [];
+                        localStorage.removeItem('skuCounts');
+                        localStorage.removeItem('recentScans');
+                        this.updateRecentDisplay();
+                        this.status.textContent = 'Scan counts reset';
+                        setTimeout(() => {
+                            this.status.textContent = 'Ready to scan';
+                        }, 2000);
+                    }
+                });
+            }
+            loadScanCounts() {
+                try {
+                    const savedCounts = localStorage.getItem('skuCounts');
+                    const savedScans = localStorage.getItem('recentScans');
+                    
+                    if (savedCounts) {
+                        this.skuCounts = JSON.parse(savedCounts);
+                    }
+                    
+                    if (savedScans) {
+                        this.recentScans = JSON.parse(savedScans);
+                        this.updateRecentDisplay();
+                    }
+                } catch (error) {
+                    console.error('Error loading scan counts:', error);
+                }
+            }
+            saveScanCounts() {
+                try {
+                    localStorage.setItem('skuCounts', JSON.stringify(this.skuCounts));
+                    localStorage.setItem('recentScans', JSON.stringify(this.recentScans));
+                } catch (error) {
+                    console.error('Error saving scan counts:', error);
+                }
+            }
             loadSKUList(file) {
                 const reader = new FileReader();
                 reader.onload = (e) => {
@@ -487,7 +437,6 @@
                         const trimmed = line.trim();
                         if (!trimmed) return;
                         
-                        // Parse format: SKU,quantity or just SKU
                         const parts = trimmed.split(',');
                         const sku = parts[0].trim();
                         const quantity = parts.length > 1 ? parseInt(parts[1].trim()) : 1;
@@ -498,14 +447,15 @@
                         }
                     });
                     
-                    this.status.textContent = `Loaded ${this.validSKUs.size} SKUs`;
+                    this.status.textContent = `Loaded ${this.validSKUs.size} backstock SKUs`;
+                    this.updateRecentDisplay();
+                    
                     setTimeout(() => {
                         this.status.textContent = 'Ready to scan';
                     }, 2000);
                 };
                 reader.readAsText(file);
             }
-
             async scanForSKU() {
                 if (this.isScanning || !this.apiKey) return;
                 
@@ -513,23 +463,17 @@
                 this.scanFrame.className = 'scan-frame scanning';
                 this.scanFrame.textContent = 'Analyzing...';
                 this.scanBtn.disabled = true;
-
                 try {
-                    // Check if video is ready
                     if (this.video.readyState < 2) {
                         this.scanFrame.textContent = 'Camera loading...';
                         this.isScanning = false;
                         this.scanBtn.disabled = false;
                         return;
                     }
-
-                    // Capture frame from video
                     this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
                     
-                    // Convert canvas to base64
                     const imageBase64 = this.canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
                     
-                    // Call Google Cloud Vision API
                     const result = await this.callVisionAPI(imageBase64);
                     
                     if (result && result.textAnnotations && result.textAnnotations.length > 0) {
@@ -537,16 +481,13 @@
                         console.log('Vision API detected text:', fullText);
                         console.log('All text annotations:', result.textAnnotations);
                         
-                        // Method 1: Look through individual text blocks for isolated or embedded 6-digit numbers
                         let sku = null;
                         let detectedText = '';
                         let skuIndex = -1;
                         
-                        // Check each detected text block
                         for (let i = 1; i < result.textAnnotations.length; i++) {
                             const textBlock = result.textAnnotations[i].description.trim();
                             
-                            // Look for exact 6-digit match starting with 0
                             if (/^0\d{5}$/.test(textBlock)) {
                                 sku = textBlock;
                                 detectedText = textBlock;
@@ -555,7 +496,6 @@
                                 break;
                             }
                             
-                            // Look for 6-digit embedded after letter-number-number pattern (like "D01064712")
                             const embeddedMatch = textBlock.match(/[a-zA-Z]\d{2}(0\d{5})/i);
                             if (embeddedMatch) {
                                 sku = embeddedMatch[1];
@@ -566,9 +506,7 @@
                             }
                         }
                         
-                        // Method 2: If not found, try pattern matching in full text
                         if (!sku) {
-                            // Look for 6-digit number starting with 0
                             const match = fullText.match(/(0\d{5})/);
                             if (match) {
                                 sku = match[1];
@@ -577,37 +515,30 @@
                             }
                         }
                         
-                        // Extract description (text following the SKU)
                         let description = '';
                         if (sku && skuIndex > 0) {
-                            // Get next few text blocks after SKU as description
                             const descParts = [];
                             for (let i = skuIndex + 1; i < Math.min(skuIndex + 8, result.textAnnotations.length); i++) {
                                 const part = result.textAnnotations[i].description.trim();
                                 
-                                // Stop at numbers (like "0235") or location indicators
                                 if (/^\d+$/.test(part)) break;
                                 if (/^(WESTLAND|MI)$/i.test(part)) break;
                                 
-                                // Skip short text or single characters
                                 if (part.length < 2) continue;
                                 
                                 descParts.push(part);
-                                if (descParts.length >= 6) break; // Limit description length
+                                if (descParts.length >= 6) break;
                             }
                             description = descParts.join(' ');
                         }
                         
-                        // Fallback: extract description from full text
                         if (!description && sku) {
                             const lines = fullText.split('\n');
                             for (const line of lines) {
                                 if (line.includes(sku)) {
-                                    // Get the line after the SKU line
                                     const lineIndex = lines.indexOf(line);
                                     if (lineIndex + 1 < lines.length) {
                                         const nextLine = lines[lineIndex + 1].trim();
-                                        // Filter out location info
                                         if (!/^(0235|WESTLAND|MI)/i.test(nextLine)) {
                                             description = nextLine;
                                         }
@@ -630,14 +561,12 @@
                                 return;
                             }
                         } else {
-                            // Show what was found for debugging - add to recent scans
                             const allSixDigit = fullText.match(/\d{6}/g);
                             
                             if (allSixDigit && allSixDigit.length > 0) {
                                 const detectedNumbers = allSixDigit.join(', ');
                                 this.scanFrame.textContent = `Saw: ${detectedNumbers}`;
                                 this.status.textContent = 'Found numbers but no valid SKU format';
-                                // Add failed detection to recent scans
                                 this.addFailedScan(detectedNumbers, '');
                             } else {
                                 this.scanFrame.textContent = 'No 6-digit SKU found';
@@ -650,7 +579,6 @@
                         this.status.textContent = 'Try better lighting/focus';
                     }
                     
-                    // Auto-reset
                     setTimeout(() => {
                         if (!this.scanCooldown) {
                             this.scanFrame.className = 'scan-frame';
@@ -668,7 +596,6 @@
                     this.isScanning = false;
                 }
             }
-
             async callVisionAPI(imageBase64) {
                 const url = `https://vision.googleapis.com/v1/images:annotate?key=${this.apiKey}`;
                 
@@ -683,7 +610,6 @@
                         }]
                     }]
                 };
-
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: {
@@ -691,18 +617,14 @@
                     },
                     body: JSON.stringify(requestBody)
                 });
-
                 if (!response.ok) {
                     const error = await response.json();
                     throw new Error(error.error?.message || 'API request failed');
                 }
-
                 const data = await response.json();
                 return data.responses[0];
             }
-
             processSKU(sku, description = '') {
-                // Increment scan count
                 if (!this.skuCounts[sku]) {
                     this.skuCounts[sku] = 0;
                 }
@@ -712,40 +634,33 @@
                 const onBackstockList = this.validSKUs.has(sku);
                 const quota = this.skuQuotas[sku] || 0;
                 
-                // Determine status - REVERSED LOGIC
                 let status, isValid;
                 if (onBackstockList) {
                     if (scanCount <= quota) {
                         status = 'BACKSTOCK';
-                        isValid = false; // Red (needs to go to backstock)
+                        isValid = false;
                     } else {
                         status = 'FLOOR STOCK';
-                        isValid = true; // Green (over quota, goes to floor)
+                        isValid = true;
                     }
                 } else {
                     status = 'FLOOR STOCK';
-                    isValid = true; // Green (not on backstock list)
+                    isValid = true;
                 }
                 
                 const timestamp = new Date().toLocaleTimeString();
                 
-                // Update scan frame
                 this.scanFrame.className = isValid ? 'scan-frame found' : 'scan-frame not-found';
                 this.scanFrame.textContent = `${sku} - ${status}`;
                 
-                // Add to recent scans
                 this.addRecentScan(sku, description, status, isValid, timestamp, scanCount, quota);
-                
-                // Provide audio feedback
+                this.saveScanCounts();
                 this.playFeedbackSound(isValid);
             }
-
             addRecentScan(sku, description, status, isValid, timestamp, scanCount, quota) {
-                // Check if this SKU already exists in recent scans
                 const existingIndex = this.recentScans.findIndex(s => s.sku === sku && s.type === 'scan');
                 
                 if (existingIndex >= 0) {
-                    // Update existing entry
                     this.recentScans[existingIndex] = { 
                         sku, 
                         description,
@@ -757,7 +672,6 @@
                         type: 'scan' 
                     };
                 } else {
-                    // Add new entry
                     this.recentScans.unshift({ 
                         sku, 
                         description,
@@ -770,14 +684,12 @@
                     });
                 }
                 
-                // Keep only last 10 scans
                 if (this.recentScans.length > 10) {
                     this.recentScans = this.recentScans.slice(0, 10);
                 }
                 
                 this.updateRecentDisplay();
             }
-
             addFailedScan(detectedText, description) {
                 const timestamp = new Date().toLocaleTimeString();
                 this.recentScans.unshift({ 
@@ -788,14 +700,12 @@
                     type: 'failed' 
                 });
                 
-                // Keep only last 10 scans
                 if (this.recentScans.length > 10) {
                     this.recentScans = this.recentScans.slice(0, 10);
                 }
                 
                 this.updateRecentDisplay();
             }
-
             updateRecentDisplay() {
                 this.recentSkus.innerHTML = '';
                 
@@ -845,7 +755,6 @@
                     this.recentSkus.appendChild(div);
                 });
             }
-
             startCooldown() {
                 this.scanCooldown = true;
                 this.scanBtn.disabled = true;
@@ -858,7 +767,6 @@
                     this.status.textContent = 'Ready to scan';
                 }, 2000);
             }
-
             playFeedbackSound(isValid) {
                 try {
                     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -877,12 +785,9 @@
                     oscillator.start(audioContext.currentTime);
                     oscillator.stop(audioContext.currentTime + 0.3);
                 } catch (error) {
-                    // Audio feedback not available
                 }
             }
         }
-
-        // Initialize the scanner when page loads
         window.addEventListener('load', () => {
             new SKUScanner();
         });
