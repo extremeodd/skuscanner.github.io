@@ -333,7 +333,7 @@
                 this.validSKUs = new Set();
                 this.skuQuotas = {};
                 this.skuCounts = {};
-                this.skuData = {}; // Store full scan data per SKU
+                this.skuData = {};
                 this.isScanning = false;
                 this.lastScannedSKU = null;
                 this.scanCooldown = false;
@@ -429,18 +429,15 @@
                     return;
                 }
 
-                // Sort SKUs numerically
                 const sortedSKUs = Object.keys(this.skuCounts).sort((a, b) => {
                     return parseInt(a) - parseInt(b);
                 });
 
-                // Create CSV content
                 let csvContent = 'SKU,Scan Count\n';
                 sortedSKUs.forEach(sku => {
                     csvContent += `${sku},${this.skuCounts[sku]}\n`;
                 });
 
-                // Create download
                 const blob = new Blob([csvContent], { type: 'text/csv' });
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -705,7 +702,6 @@
                 
                 const timestamp = new Date().toLocaleTimeString();
                 
-                // Store full scan data
                 this.skuData[sku] = {
                     sku,
                     description,
@@ -739,7 +735,6 @@
                     return;
                 }
                 
-                // Sort SKUs numerically
                 const sortedSKUs = Object.keys(this.skuData).sort((a, b) => {
                     return parseInt(a) - parseInt(b);
                 });
