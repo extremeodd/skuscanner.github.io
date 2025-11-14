@@ -86,20 +86,32 @@
         }
         .controls {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex-direction: column;
+            gap: 10px;
             margin-bottom: 20px;
+        }
+        .scan-button-container {
+            width: 100%;
+        }
+        .btn.scan-btn {
+            width: 100%;
+            height: 80px;
+            background: #28a745;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .btn.scan-btn:hover {
+            background: #218838;
+        }
+        .secondary-buttons {
+            display: flex;
             gap: 10px;
             flex-wrap: wrap;
         }
         h2 {
             font-size: 20px;
             color: #fff;
-        }
-        .button-group {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
+            margin-bottom: 10px;
         }
         .btn {
             background: #007bff;
@@ -115,18 +127,19 @@
         .btn:hover {
             background: #0056b3;
         }
-        .btn.scan-btn {
-            background: #28a745;
-        }
-        .btn.scan-btn:hover {
-            background: #218838;
-        }
         .btn.reset-btn {
             background: #ffc107;
             color: #000;
         }
         .btn.reset-btn:hover {
             background: #e0a800;
+        }
+        .btn.export-btn {
+            background: #17a2b8;
+            color: white;
+        }
+        .btn.export-btn:hover {
+            background: #138496;
         }
         .btn:disabled {
             background: #666;
@@ -282,9 +295,11 @@
             <small>Get your free API key from <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color: #4da6ff;">Google Cloud Console</a></small>
         </div>
         <div class="controls">
-            <h2>Recent SKUs</h2>
-            <div class="button-group">
-                <button class="btn scan-btn" id="scanBtn" disabled>Scan Now</button>
+            <div class="scan-button-container">
+                <button class="btn scan-btn" id="scanBtn" disabled>SCAN NOW</button>
+            </div>
+            <div class="secondary-buttons">
+                <button class="btn export-btn" id="exportBtn">Export List</button>
                 <button class="btn reset-btn" id="resetBtn">Reset Counts</button>
                 <div class="file-input-wrapper">
                     <input type="file" id="fileInput" accept=".txt,.csv">
@@ -292,6 +307,7 @@
                 </div>
             </div>
         </div>
+        <h2>Recent SKUs</h2>
         <div class="recent-skus" id="recentSkus">
             <div class="sku-item pending">
                 <span>Enter API key to start scanning</span>
@@ -312,11 +328,12 @@
                 this.apiKeyInput = document.getElementById('apiKeyInput');
                 this.fileInput = document.getElementById('fileInput');
                 this.resetBtn = document.getElementById('resetBtn');
+                this.exportBtn = document.getElementById('exportBtn');
                 
                 this.validSKUs = new Set();
                 this.skuQuotas = {};
                 this.skuCounts = {};
-                this.recentScans = [];
+                this.skuData = {}; // Store full scan data per SKU
                 this.isScanning = false;
                 this.lastScannedSKU = null;
                 this.scanCooldown = false;
@@ -341,6 +358,7 @@
                 this.setupFileInput();
                 this.setupScanButton();
                 this.setupResetButton();
+                this.setupExportButton();
                 this.loadScanCounts();
             }
             async setupCamera() {
@@ -389,9 +407,9 @@
                 this.resetBtn.addEventListener('click', () => {
                     if (confirm('Reset all scan counts? This will clear your scanning progress.')) {
                         this.skuCounts = {};
-                        this.recentScans = [];
+                        this.skuData = {};
                         localStorage.removeItem('skuCounts');
-                        localStorage.removeItem('recentScans');
+                        localStorage.removeItem('skuData');
                         this.updateRecentDisplay();
                         this.status.textContent = 'Scan counts reset';
                         setTimeout(() => {
@@ -400,17 +418,56 @@
                     }
                 });
             }
+            setupExportButton() {
+                this.exportBtn.addEventListener('click', () => {
+                    this.exportScanData();
+                });
+            }
+            exportScanData() {
+                if (Object.keys(this.skuCounts).length === 0) {
+                    alert('No scans to export!');
+                    return;
+                }
+
+                // Sort SKUs numerically
+                const sortedSKUs = Object.keys(this.skuCounts).sort((a, b) => {
+                    return parseInt(a) - parseInt(b);
+                });
+
+                // Create CSV content
+                let csvContent = 'SKU,Scan Count\n';
+                sortedSKUs.forEach(sku => {
+                    csvContent += `${sku},${this.skuCounts[sku]}\n`;
+                });
+
+                // Create download
+                const blob = new Blob([csvContent], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                const date = new Date().toISOString().split('T')[0];
+                a.download = `sku_scan_report_${date}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+
+                this.status.textContent = 'Export complete!';
+                setTimeout(() => {
+                    this.status.textContent = 'Ready to scan';
+                }, 2000);
+            }
             loadScanCounts() {
                 try {
                     const savedCounts = localStorage.getItem('skuCounts');
-                    const savedScans = localStorage.getItem('recentScans');
+                    const savedData = localStorage.getItem('skuData');
                     
                     if (savedCounts) {
                         this.skuCounts = JSON.parse(savedCounts);
                     }
                     
-                    if (savedScans) {
-                        this.recentScans = JSON.parse(savedScans);
+                    if (savedData) {
+                        this.skuData = JSON.parse(savedData);
                         this.updateRecentDisplay();
                     }
                 } catch (error) {
@@ -420,7 +477,7 @@
             saveScanCounts() {
                 try {
                     localStorage.setItem('skuCounts', JSON.stringify(this.skuCounts));
-                    localStorage.setItem('recentScans', JSON.stringify(this.recentScans));
+                    localStorage.setItem('skuData', JSON.stringify(this.skuData));
                 } catch (error) {
                     console.error('Error saving scan counts:', error);
                 }
@@ -567,11 +624,9 @@
                                 const detectedNumbers = allSixDigit.join(', ');
                                 this.scanFrame.textContent = `Saw: ${detectedNumbers}`;
                                 this.status.textContent = 'Found numbers but no valid SKU format';
-                                this.addFailedScan(detectedNumbers, '');
                             } else {
                                 this.scanFrame.textContent = 'No 6-digit SKU found';
                                 this.status.textContent = `Text: ${fullText.substring(0, 40)}`;
-                                this.addFailedScan('No SKU detected', '');
                             }
                         }
                     } else {
@@ -585,7 +640,7 @@
                             this.scanFrame.textContent = 'Position SKU in frame';
                             this.scanBtn.disabled = false;
                         }
-                    }, 2000);
+                    }, 1500);
                     
                 } catch (error) {
                     console.error('Scan error:', error);
@@ -650,66 +705,28 @@
                 
                 const timestamp = new Date().toLocaleTimeString();
                 
+                // Store full scan data
+                this.skuData[sku] = {
+                    sku,
+                    description,
+                    status,
+                    isValid,
+                    timestamp,
+                    scanCount,
+                    quota
+                };
+                
                 this.scanFrame.className = isValid ? 'scan-frame found' : 'scan-frame not-found';
                 this.scanFrame.textContent = `${sku} - ${status}`;
                 
-                this.addRecentScan(sku, description, status, isValid, timestamp, scanCount, quota);
+                this.updateRecentDisplay();
                 this.saveScanCounts();
                 this.playFeedbackSound(isValid);
-            }
-            addRecentScan(sku, description, status, isValid, timestamp, scanCount, quota) {
-                const existingIndex = this.recentScans.findIndex(s => s.sku === sku && s.type === 'scan');
-                
-                if (existingIndex >= 0) {
-                    this.recentScans[existingIndex] = { 
-                        sku, 
-                        description,
-                        status,
-                        isValid, 
-                        timestamp, 
-                        scanCount,
-                        quota,
-                        type: 'scan' 
-                    };
-                } else {
-                    this.recentScans.unshift({ 
-                        sku, 
-                        description,
-                        status,
-                        isValid, 
-                        timestamp, 
-                        scanCount,
-                        quota,
-                        type: 'scan' 
-                    });
-                }
-                
-                if (this.recentScans.length > 10) {
-                    this.recentScans = this.recentScans.slice(0, 10);
-                }
-                
-                this.updateRecentDisplay();
-            }
-            addFailedScan(detectedText, description) {
-                const timestamp = new Date().toLocaleTimeString();
-                this.recentScans.unshift({ 
-                    sku: detectedText,
-                    description,
-                    isValid: false, 
-                    timestamp, 
-                    type: 'failed' 
-                });
-                
-                if (this.recentScans.length > 10) {
-                    this.recentScans = this.recentScans.slice(0, 10);
-                }
-                
-                this.updateRecentDisplay();
             }
             updateRecentDisplay() {
                 this.recentSkus.innerHTML = '';
                 
-                if (this.recentScans.length === 0) {
+                if (Object.keys(this.skuData).length === 0) {
                     const message = this.apiKey ? 'No SKUs scanned yet' : 'Enter API key to start';
                     this.recentSkus.innerHTML = `
                         <div class="sku-item pending">
@@ -722,35 +739,31 @@
                     return;
                 }
                 
-                this.recentScans.forEach(scan => {
+                // Sort SKUs numerically
+                const sortedSKUs = Object.keys(this.skuData).sort((a, b) => {
+                    return parseInt(a) - parseInt(b);
+                });
+                
+                sortedSKUs.forEach(sku => {
+                    const scan = this.skuData[sku];
                     const div = document.createElement('div');
                     
-                    if (scan.type === 'failed') {
-                        div.className = 'sku-item pending';
-                        div.innerHTML = `
-                            <div class="sku-line">
-                                <span>Detected: ${scan.sku}</span>
-                                <span class="timestamp">${scan.timestamp}</span>
-                            </div>
-                        `;
-                    } else {
-                        const className = scan.isValid ? 'valid' : 'invalid';
-                        div.className = `sku-item ${className}`;
-                        
-                        const quotaInfo = scan.quota > 0 ? ` (${scan.scanCount}/${scan.quota})` : '';
-                        const scanCountDisplay = scan.scanCount > 1 ? ` x${scan.scanCount}` : '';
-                        
-                        div.innerHTML = `
-                            <div class="sku-line">
-                                <span>${scan.sku}${scanCountDisplay} - ${scan.status}</span>
-                            </div>
-                            ${scan.description ? `<div class="description">${scan.description}</div>` : ''}
-                            <div class="scan-info">
-                                <span>${quotaInfo}</span>
-                                <span class="timestamp">${scan.timestamp}</span>
-                            </div>
-                        `;
-                    }
+                    const className = scan.isValid ? 'valid' : 'invalid';
+                    div.className = `sku-item ${className}`;
+                    
+                    const quotaInfo = scan.quota > 0 ? ` (${scan.scanCount}/${scan.quota})` : '';
+                    const scanCountDisplay = scan.scanCount > 1 ? ` x${scan.scanCount}` : '';
+                    
+                    div.innerHTML = `
+                        <div class="sku-line">
+                            <span>${scan.sku}${scanCountDisplay} - ${scan.status}</span>
+                        </div>
+                        ${scan.description ? `<div class="description">${scan.description}</div>` : ''}
+                        <div class="scan-info">
+                            <span>${quotaInfo}</span>
+                            <span class="timestamp">${scan.timestamp}</span>
+                        </div>
+                    `;
                     
                     this.recentSkus.appendChild(div);
                 });
@@ -765,7 +778,7 @@
                     this.scanFrame.textContent = 'Position SKU in frame';
                     this.lastScannedSKU = null;
                     this.status.textContent = 'Ready to scan';
-                }, 2000);
+                }, 1000);
             }
             playFeedbackSound(isValid) {
                 try {
