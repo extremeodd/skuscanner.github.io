@@ -544,37 +544,67 @@
             
             parseCartonData(text) {
                 this.cartonData = {};
+                
+                // Split into lines and process
                 const lines = text.split('\n');
                 
                 for (let i = 0; i < lines.length; i++) {
                     const line = lines[i].trim();
+                    if (!line) continue;
                     
-                    // Look for barcode (starts with 0, 15-25 digits)
+                    // Look for barcode pattern: starts with 0, typically 15-20 digits
                     const barcodeMatch = line.match(/\b(0\d{14,24})\b/);
-                    if (barcodeMatch) {
-                        const barcode = barcodeMatch[1];
-                        
-                        // Look for SKU (3-5 digit number) in the same line or nearby
-                        // SKU typically appears after the barcode
-                        const restOfLine = line.substring(line.indexOf(barcode) + barcode.length);
-                        const skuMatch = restOfLine.match(/\b(\d{3,5})\b/);
+                    if (!barcodeMatch) continue;
+                    
+                    const barcode = barcodeMatch[1];
+                    
+                    // After barcode, find SKU (4-6 digits, appears after some other numbers)
+                    // Pattern in Harbor Freight data: barcode, then maybe another number, then "Slapper" or "Tote", then SKU
+                    const afterBarcode = line.substring(line.indexOf(barcode) + barcode.length);
+                    
+                    // Find all 3-6 digit numbers after the barcode
+                    const allNumbers = afterBarcode.match(/\b\d{3,6}\b/g);
+                    
+                    if (!allNumbers || allNumbers.length < 2) continue;
+                    
+                    // The SKU is typically the 2nd or 3rd number (after the carton type ID)
+                    // Try to identify it by looking for text keywords like "Slapper" or "Tote"
+                    let sku = null;
+                    let desc = '';
+                    
+                    // Look for common carton types
+                    const cartonTypeMatch = afterBarcode.match(/\b(Slapper|Tote)\b/);
+                    
+                    if (cartonTypeMatch) {
+                        // SKU comes after the carton type
+                        const afterCartonType = afterBarcode.substring(afterBarcode.indexOf(cartonTypeMatch[0]) + cartonTypeMatch[0].length);
+                        const skuMatch = afterCartonType.match(/\b(\d{4,6})\b/);
                         
                         if (skuMatch) {
-                            const sku = skuMatch[1];
+                            sku = skuMatch[1];
                             
-                            // Try to extract description (text after SKU)
-                            let desc = restOfLine.substring(restOfLine.indexOf(sku) + sku.length).trim();
-                            desc = desc.split(/\s{3,}/)[0]; // Take first chunk before large gap
-                            desc = desc.substring(0, 100); // Limit length
-                            
-                            this.cartonData[barcode] = {
-                                carton: barcode.substring(0, 10), // First 10 digits as carton ID
-                                sku: sku,
-                                desc: desc || 'No description'
-                            };
+                            // Description comes after SKU
+                            desc = afterCartonType.substring(afterCartonType.indexOf(sku) + sku.length).trim();
+                            // Clean up description - take up to next number or 100 chars
+                            desc = desc.split(/\s+\d+\s+\d+/)[0].trim();
+                            desc = desc.substring(0, 100);
                         }
+                    } else {
+                        // Fallback: assume second number is SKU
+                        sku = allNumbers[1];
+                        desc = afterBarcode.replace(/\d+/g, '').trim().substring(0, 100);
+                    }
+                    
+                    if (sku) {
+                        this.cartonData[barcode] = {
+                            carton: barcode.substring(0, 12),
+                            sku: sku,
+                            desc: desc || 'No description'
+                        };
                     }
                 }
+                
+                console.log(`Parsed ${Object.keys(this.cartonData).length} cartons from PDF`);
             }
             
             updateScanOverlay() {
