@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SKU Scanner with Carton Tracking</title>
+    <title>SKU Scanner - Barcode</title>
     <style>
         * {
             margin: 0;
@@ -21,55 +21,55 @@
         }
         .camera-container {
             position: relative;
-            height: 45vh;
-            max-height: 400px;
+            height: 50vh;
             display: flex;
             justify-content: center;
             align-items: center;
             background: #1a1a1a;
         }
-        #video {
+        #interactive {
+            width: 100%;
+            height: 100%;
+        }
+        #interactive video {
             width: 100%;
             height: 100%;
             object-fit: cover;
         }
-        .overlay {
+        .drawingBuffer {
             position: absolute;
             top: 0;
             left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
         }
-        .scan-frame {
+        .scan-overlay {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 300px;
-            height: 100px;
+            width: 80%;
+            max-width: 400px;
+            height: 150px;
             border: 3px solid #00ff00;
-            border-radius: 8px;
-            background: rgba(0, 255, 0, 0.1);
+            border-radius: 12px;
+            pointer-events: none;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 16px;
+            font-size: 18px;
             font-weight: bold;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
-            text-align: center;
-            padding: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.9);
+            background: rgba(0, 255, 0, 0.05);
         }
-        .scan-frame.scanning {
+        .scan-overlay.scanning {
             border-color: #ffaa00;
             background: rgba(255, 170, 0, 0.1);
             animation: pulse 1s infinite;
         }
-        .scan-frame.found {
+        .scan-overlay.success {
             border-color: #00ff00;
             background: rgba(0, 255, 0, 0.2);
         }
-        .scan-frame.not-found {
+        .scan-overlay.error {
             border-color: #ff0000;
             background: rgba(255, 0, 0, 0.2);
         }
@@ -90,20 +90,12 @@
             gap: 10px;
             margin-bottom: 20px;
         }
-        .scan-button-container {
-            width: 100%;
+        .file-inputs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
         }
-        .btn.scan-btn {
-            width: 100%;
-            height: 80px;
-            background: #28a745;
-            font-size: 24px;
-            font-weight: bold;
-        }
-        .btn.scan-btn:hover {
-            background: #218838;
-        }
-        .secondary-buttons {
+        .action-buttons {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 10px;
@@ -116,13 +108,13 @@
         .btn {
             background: #007bff;
             color: white;
-            padding: 10px 16px;
+            padding: 12px 16px;
             border-radius: 6px;
             cursor: pointer;
             font-size: 14px;
             border: none;
             transition: background 0.2s;
-            font-weight: 500;
+            font-weight: 600;
         }
         .btn:hover {
             background: #0056b3;
@@ -135,11 +127,11 @@
             background: #e0a800;
         }
         .btn.export-btn {
-            background: #17a2b8;
+            background: #28a745;
             color: white;
         }
         .btn.export-btn:hover {
-            background: #138496;
+            background: #218838;
         }
         .btn:disabled {
             background: #666;
@@ -156,7 +148,7 @@
         .file-input-label {
             background: #007bff;
             color: white;
-            padding: 10px 16px;
+            padding: 12px 16px;
             border-radius: 6px;
             cursor: pointer;
             font-size: 14px;
@@ -164,7 +156,7 @@
             transition: background 0.2s;
             display: block;
             text-align: center;
-            font-weight: 500;
+            font-weight: 600;
         }
         .file-input-label:hover {
             background: #0056b3;
@@ -172,33 +164,9 @@
         .file-status {
             font-size: 11px;
             color: #28a745;
-            margin-top: 3px;
+            margin-top: 4px;
             text-align: center;
-        }
-        .api-key-section {
-            background: #2a2a2a;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-        .api-key-section input {
-            width: 100%;
-            padding: 10px;
-            background: #1a1a1a;
-            border: 2px solid #555;
-            border-radius: 6px;
-            color: white;
-            font-size: 14px;
-            margin-top: 10px;
-        }
-        .api-key-section input:focus {
-            outline: none;
-            border-color: #007bff;
-        }
-        .api-key-section small {
-            color: #aaa;
-            display: block;
-            margin-top: 5px;
+            min-height: 15px;
         }
         .recent-skus {
             display: flex;
@@ -236,9 +204,10 @@
         }
         .sku-item .carton-info {
             font-size: 13px;
-            opacity: 0.9;
+            opacity: 0.95;
             margin-top: 3px;
             color: #ffc107;
+            font-weight: 600;
         }
         .sku-item.valid {
             background: #28a745;
@@ -262,29 +231,44 @@
             top: 20px;
             left: 20px;
             right: 20px;
-            background: rgba(0, 0, 0, 0.9);
-            padding: 10px 15px;
-            border-radius: 6px;
-            font-size: 13px;
+            background: rgba(0, 0, 0, 0.95);
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-size: 14px;
             z-index: 1000;
             text-align: center;
+            border: 2px solid #00ff00;
+            font-weight: 600;
         }
-        .canvas-hidden {
-            display: none;
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #2a2a2a;
+            border-radius: 8px;
+        }
+        .stat {
+            text-align: center;
+        }
+        .stat-label {
+            font-size: 11px;
+            color: #aaa;
+            margin-bottom: 3px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00ff00;
         }
         @media (max-width: 480px) {
-            .scan-frame {
-                width: 250px;
-                height: 90px;
-                font-size: 14px;
+            .file-inputs {
+                grid-template-columns: 1fr;
             }
-            
-            .results-container {
-                padding: 15px;
-            }
-            
-            .sku-item {
-                padding: 12px;
+            .scan-overlay {
+                width: 90%;
+                height: 120px;
                 font-size: 16px;
             }
         }
@@ -294,144 +278,168 @@
     <div class="status" id="status">Initializing camera...</div>
     
     <div class="camera-container">
-        <video id="video" autoplay muted playsinline></video>
-        <div class="overlay">
-            <div class="scan-frame" id="scanFrame">Position barcode in frame</div>
-        </div>
-        <canvas id="canvas" class="canvas-hidden"></canvas>
+        <div id="interactive" class="viewport"></div>
+        <div class="scan-overlay" id="scanOverlay">Position barcode in frame</div>
     </div>
+
     <div class="results-container">
-        <div class="api-key-section" id="apiKeySection">
-            <label for="apiKeyInput"><strong>Google Cloud Vision API Key:</strong></label>
-            <input type="password" id="apiKeyInput" placeholder="Enter your API key here">
-            <small>Get your free API key from <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color: #4da6ff;">Google Cloud Console</a></small>
-        </div>
-        <div class="controls">
-            <div class="scan-button-container">
-                <button class="btn scan-btn" id="scanBtn" disabled>SCAN NOW</button>
+        <div class="stats-bar">
+            <div class="stat">
+                <div class="stat-label">Total Scans</div>
+                <div class="stat-value" id="totalScans">0</div>
             </div>
-            <div class="secondary-buttons">
+            <div class="stat">
+                <div class="stat-label">Unique SKUs</div>
+                <div class="stat-value" id="uniqueSkus">0</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Floor Stock</div>
+                <div class="stat-value" id="floorStock">0</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="file-inputs">
                 <div class="file-input-wrapper">
                     <input type="file" id="backstockInput" accept=".txt,.csv">
-                    <label for="backstockInput" class="file-input-label">Load Backstock List</label>
+                    <label for="backstockInput" class="file-input-label">📋 Backstock List</label>
                     <div class="file-status" id="backstockStatus"></div>
                 </div>
                 <div class="file-input-wrapper">
                     <input type="file" id="cartonInput" accept=".txt,.csv">
-                    <label for="cartonInput" class="file-input-label">Load Carton Data</label>
+                    <label for="cartonInput" class="file-input-label">📦 Carton Data</label>
                     <div class="file-status" id="cartonStatus"></div>
                 </div>
-                <button class="btn export-btn" id="exportBtn">Export List</button>
-                <button class="btn reset-btn" id="resetBtn">Reset Counts</button>
+            </div>
+            <div class="action-buttons">
+                <button class="btn export-btn" id="exportBtn">📥 Export CSV</button>
+                <button class="btn reset-btn" id="resetBtn">🔄 Reset All</button>
             </div>
         </div>
+
         <h2>Recent Scans</h2>
         <div class="recent-skus" id="recentSkus">
             <div class="sku-item pending">
-                <span>Load files and enter API key to start</span>
+                <span>Load backstock list and carton data to begin</span>
                 <span class="timestamp">Ready</span>
             </div>
         </div>
     </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.8.4/dist/quagga.min.js"></script>
     <script>
-        class SKUScanner {
+        class BarcodeScanner {
             constructor() {
-                this.video = document.getElementById('video');
-                this.canvas = document.getElementById('canvas');
-                this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
-                this.scanFrame = document.getElementById('scanFrame');
+                this.scanOverlay = document.getElementById('scanOverlay');
                 this.status = document.getElementById('status');
                 this.recentSkus = document.getElementById('recentSkus');
-                this.scanBtn = document.getElementById('scanBtn');
-                this.apiKeyInput = document.getElementById('apiKeyInput');
                 this.backstockInput = document.getElementById('backstockInput');
                 this.cartonInput = document.getElementById('cartonInput');
                 this.resetBtn = document.getElementById('resetBtn');
                 this.exportBtn = document.getElementById('exportBtn');
                 this.backstockStatus = document.getElementById('backstockStatus');
                 this.cartonStatus = document.getElementById('cartonStatus');
+                this.totalScansEl = document.getElementById('totalScans');
+                this.uniqueSkusEl = document.getElementById('uniqueSkus');
+                this.floorStockEl = document.getElementById('floorStock');
                 
-                // Backstock list (SKUs expected)
+                // Data storage
                 this.validSKUs = new Set();
                 this.skuQuotas = {};
-                
-                // Carton data (barcode -> carton# -> SKU mapping)
-                this.cartonData = {}; // { barcode: { carton: '...', sku: '...', desc: '...' } }
-                
-                // Scan tracking
+                this.cartonData = {};
                 this.skuCounts = {};
                 this.skuData = {};
                 this.scannedBarcodes = new Set();
                 
-                this.isScanning = false;
-                this.lastScannedBarcode = null;
-                this.scanCooldown = false;
-                this.apiKey = localStorage.getItem('visionApiKey') || '';
+                // Scanning control
+                this.lastBarcode = null;
+                this.lastScanTime = 0;
+                this.scanCooldown = 1000; // 1 second between scans of same barcode
                 
                 this.init();
             }
             
             async init() {
-                if (this.apiKey) {
-                    this.apiKeyInput.value = this.apiKey;
-                    this.scanBtn.disabled = false;
-                }
-                
-                this.apiKeyInput.addEventListener('input', (e) => {
-                    this.apiKey = e.target.value.trim();
-                    localStorage.setItem('visionApiKey', this.apiKey);
-                    this.scanBtn.disabled = !this.apiKey;
-                    if (this.apiKey) {
-                        this.updateRecentDisplay();
-                    }
-                });
-                
-                await this.setupCamera();
                 this.setupFileInputs();
-                this.setupScanButton();
-                this.setupResetButton();
-                this.setupExportButton();
+                this.setupButtons();
                 this.loadScanCounts();
+                this.startScanner();
             }
             
-            async setupCamera() {
-                try {
-                    const constraints = {
-                        video: {
-                            facingMode: 'environment',
+            startScanner() {
+                Quagga.init({
+                    inputStream: {
+                        name: "Live",
+                        type: "LiveStream",
+                        target: document.querySelector('#interactive'),
+                        constraints: {
+                            facingMode: "environment",
                             width: { ideal: 1920 },
                             height: { ideal: 1080 }
+                        },
+                    },
+                    decoder: {
+                        readers: [
+                            "code_128_reader",
+                            "code_39_reader",
+                            "ean_reader",
+                            "ean_8_reader",
+                            "upc_reader",
+                            "upc_e_reader"
+                        ],
+                        debug: {
+                            drawBoundingBox: false,
+                            showFrequency: false,
+                            drawScanline: true,
+                            showPattern: false
                         }
-                    };
-                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                    this.video.srcObject = stream;
+                    },
+                    locate: true,
+                    locator: {
+                        patchSize: "medium",
+                        halfSample: true
+                    },
+                }, (err) => {
+                    if (err) {
+                        console.error('QuaggaJS init error:', err);
+                        this.status.textContent = 'Camera error - check permissions';
+                        return;
+                    }
                     
-                    this.video.addEventListener('loadedmetadata', () => {
-                        this.canvas.width = this.video.videoWidth;
-                        this.canvas.height = this.video.videoHeight;
-                        this.status.textContent = this.apiKey ? 'Ready to scan' : 'Enter API key above';
-                    });
-                } catch (error) {
-                    this.status.textContent = 'Camera access denied';
-                    console.error('Camera setup error:', error);
+                    console.log("QuaggaJS initialized");
+                    Quagga.start();
+                    this.status.textContent = 'Ready to scan - Point camera at barcode';
+                });
+                
+                Quagga.onDetected((data) => {
+                    const barcode = data.codeResult.code;
+                    this.handleBarcodeDetected(barcode);
+                });
+            }
+            
+            handleBarcodeDetected(barcode) {
+                const now = Date.now();
+                
+                // Debounce - prevent same barcode scanning too fast
+                if (barcode === this.lastBarcode && (now - this.lastScanTime) < this.scanCooldown) {
+                    return;
                 }
+                
+                this.lastBarcode = barcode;
+                this.lastScanTime = now;
+                
+                this.processBarcode(barcode);
             }
             
             setupFileInputs() {
-                // Backstock list input
                 this.backstockInput.addEventListener('change', (event) => {
                     const file = event.target.files[0];
-                    if (file) {
-                        this.loadBackstockList(file);
-                    }
+                    if (file) this.loadBackstockList(file);
                 });
                 
-                // Carton data input
                 this.cartonInput.addEventListener('change', (event) => {
                     const file = event.target.files[0];
-                    if (file) {
-                        this.loadCartonData(file);
-                    }
+                    if (file) this.loadCartonData(file);
                 });
             }
             
@@ -457,13 +465,8 @@
                         }
                     });
                     
-                    this.backstockStatus.textContent = `✓ ${this.validSKUs.size} SKUs loaded`;
-                    this.status.textContent = `Loaded ${this.validSKUs.size} backstock SKUs`;
-                    this.updateRecentDisplay();
-                    
-                    setTimeout(() => {
-                        this.status.textContent = 'Ready to scan';
-                    }, 2000);
+                    this.backstockStatus.textContent = `✓ ${this.validSKUs.size} SKUs`;
+                    this.showStatusMessage(`Loaded ${this.validSKUs.size} backstock SKUs`);
                 };
                 reader.readAsText(file);
             }
@@ -476,7 +479,6 @@
                     this.cartonData = {};
                     let count = 0;
                     
-                    // Parse format: Carton#,SKU,Description,Barcode
                     lines.forEach(line => {
                         const trimmed = line.trim();
                         if (!trimmed) return;
@@ -499,32 +501,13 @@
                         }
                     });
                     
-                    this.cartonStatus.textContent = `✓ ${count} cartons loaded`;
-                    this.status.textContent = `Loaded ${count} carton mappings`;
-                    this.updateRecentDisplay();
-                    
-                    setTimeout(() => {
-                        this.status.textContent = 'Ready to scan';
-                    }, 2000);
+                    this.cartonStatus.textContent = `✓ ${count} cartons`;
+                    this.showStatusMessage(`Loaded ${count} carton mappings`);
                 };
                 reader.readAsText(file);
             }
             
-            setupScanButton() {
-                this.scanBtn.addEventListener('click', () => {
-                    if (!this.scanCooldown && this.apiKey) {
-                        this.scanForBarcode();
-                    }
-                });
-                
-                this.video.addEventListener('click', () => {
-                    if (!this.scanCooldown && this.apiKey) {
-                        this.scanForBarcode();
-                    }
-                });
-            }
-            
-            setupResetButton() {
+            setupButtons() {
                 this.resetBtn.addEventListener('click', () => {
                     if (confirm('Reset all scan counts? This will clear your scanning progress.')) {
                         this.skuCounts = {};
@@ -533,16 +516,11 @@
                         localStorage.removeItem('skuCounts');
                         localStorage.removeItem('skuData');
                         localStorage.removeItem('scannedBarcodes');
-                        this.updateRecentDisplay();
-                        this.status.textContent = 'Scan counts reset';
-                        setTimeout(() => {
-                            this.status.textContent = 'Ready to scan';
-                        }, 2000);
+                        this.updateDisplay();
+                        this.showStatusMessage('Scan counts reset');
                     }
                 });
-            }
-            
-            setupExportButton() {
+                
                 this.exportBtn.addEventListener('click', () => {
                     this.exportScanData();
                 });
@@ -554,16 +532,16 @@
                     return;
                 }
 
-                const sortedSKUs = Object.keys(this.skuData).sort((a, b) => {
-                    const timeA = new Date(this.skuData[a].timestamp).getTime();
-                    const timeB = new Date(this.skuData[b].timestamp).getTime();
+                const sortedBarcodes = Object.keys(this.skuData).sort((a, b) => {
+                    const timeA = new Date(this.skuData[a].fullTimestamp).getTime();
+                    const timeB = new Date(this.skuData[b].fullTimestamp).getTime();
                     return timeB - timeA;
                 });
 
-                let csvContent = 'SKU,Description,Scan Count,Carton Number,Status,Timestamp\n';
-                sortedSKUs.forEach(barcode => {
+                let csvContent = 'SKU,Description,Scan Count,Carton Number,Status,Barcode,Timestamp\n';
+                sortedBarcodes.forEach(barcode => {
                     const scan = this.skuData[barcode];
-                    csvContent += `${scan.sku},"${scan.description}",${scan.scanCount},"${scan.carton || 'N/A'}",${scan.status},${scan.fullTimestamp}\n`;
+                    csvContent += `${scan.sku},"${scan.description}",${scan.scanCount},"${scan.carton || 'N/A'}",${scan.status},${scan.barcode},${scan.fullTimestamp}\n`;
                 });
 
                 const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -577,10 +555,7 @@
                 document.body.removeChild(a);
                 window.URL.revokeObjectURL(url);
 
-                this.status.textContent = 'Export complete!';
-                setTimeout(() => {
-                    this.status.textContent = 'Ready to scan';
-                }, 2000);
+                this.showStatusMessage('Export complete!');
             }
             
             loadScanCounts() {
@@ -589,18 +564,11 @@
                     const savedData = localStorage.getItem('skuData');
                     const savedBarcodes = localStorage.getItem('scannedBarcodes');
                     
-                    if (savedCounts) {
-                        this.skuCounts = JSON.parse(savedCounts);
-                    }
+                    if (savedCounts) this.skuCounts = JSON.parse(savedCounts);
+                    if (savedData) this.skuData = JSON.parse(savedData);
+                    if (savedBarcodes) this.scannedBarcodes = new Set(JSON.parse(savedBarcodes));
                     
-                    if (savedData) {
-                        this.skuData = JSON.parse(savedData);
-                        this.updateRecentDisplay();
-                    }
-                    
-                    if (savedBarcodes) {
-                        this.scannedBarcodes = new Set(JSON.parse(savedBarcodes));
-                    }
+                    this.updateDisplay();
                 } catch (error) {
                     console.error('Error loading scan counts:', error);
                 }
@@ -616,113 +584,17 @@
                 }
             }
             
-            async scanForBarcode() {
-                if (this.isScanning || !this.apiKey) return;
-                
-                this.isScanning = true;
-                this.scanFrame.className = 'scan-frame scanning';
-                this.scanFrame.textContent = 'Analyzing...';
-                this.scanBtn.disabled = true;
-                
-                try {
-                    if (this.video.readyState < 2) {
-                        this.scanFrame.textContent = 'Camera loading...';
-                        this.isScanning = false;
-                        this.scanBtn.disabled = false;
-                        return;
-                    }
-                    
-                    this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
-                    const imageBase64 = this.canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
-                    const result = await this.callVisionAPI(imageBase64);
-                    
-                    if (result && result.textAnnotations && result.textAnnotations.length > 0) {
-                        const fullText = result.textAnnotations[0].description;
-                        console.log('Vision API detected text:', fullText);
-                        
-                        // Extract barcode (any long number sequence)
-                        const barcodeMatch = fullText.match(/\d{10,}/);
-                        
-                        if (barcodeMatch) {
-                            const barcode = barcodeMatch[0];
-                            this.scanFrame.textContent = `Found: ${barcode}`;
-                            this.status.textContent = `Detected barcode: ${barcode}`;
-                            
-                            if (barcode !== this.lastScannedBarcode) {
-                                this.processBarcode(barcode);
-                                this.lastScannedBarcode = barcode;
-                                this.startCooldown();
-                                return;
-                            }
-                        } else {
-                            this.scanFrame.textContent = 'No barcode found';
-                            this.status.textContent = 'Try better angle/lighting';
-                        }
-                    } else {
-                        this.scanFrame.textContent = 'No text detected';
-                        this.status.textContent = 'Try better lighting/focus';
-                    }
-                    
-                    setTimeout(() => {
-                        if (!this.scanCooldown) {
-                            this.scanFrame.className = 'scan-frame';
-                            this.scanFrame.textContent = 'Position barcode in frame';
-                            this.scanBtn.disabled = false;
-                        }
-                    }, 1500);
-                    
-                } catch (error) {
-                    console.error('Scan error:', error);
-                    this.scanFrame.textContent = 'Scan failed';
-                    this.status.textContent = `Error: ${error.message}`;
-                    this.scanBtn.disabled = false;
-                } finally {
-                    this.isScanning = false;
-                }
-            }
-            
-            async callVisionAPI(imageBase64) {
-                const url = `https://vision.googleapis.com/v1/images:annotate?key=${this.apiKey}`;
-                
-                const requestBody = {
-                    requests: [{
-                        image: {
-                            content: imageBase64
-                        },
-                        features: [{
-                            type: 'TEXT_DETECTION',
-                            maxResults: 10
-                        }]
-                    }]
-                };
-                
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(requestBody)
-                });
-                
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error?.message || 'API request failed');
-                }
-                
-                const data = await response.json();
-                return data.responses[0];
-            }
-            
             processBarcode(barcode) {
                 // Look up barcode in carton data
                 const cartonInfo = this.cartonData[barcode];
                 
                 if (!cartonInfo) {
-                    // Barcode not in carton data
                     this.addScan(barcode, null, 'UNKNOWN', 'Barcode not in carton data', false);
-                    this.scanFrame.className = 'scan-frame not-found';
-                    this.scanFrame.textContent = `${barcode} - NOT FOUND`;
+                    this.scanOverlay.className = 'scan-overlay error';
+                    this.scanOverlay.textContent = `NOT FOUND: ${barcode}`;
+                    this.showStatusMessage(`⚠️ Barcode not found: ${barcode}`);
                     this.playFeedbackSound(false);
+                    this.resetOverlay();
                     return;
                 }
                 
@@ -762,10 +634,12 @@
                 
                 this.addScan(barcode, sku, status, desc, isValid, carton, scanCount, quota);
                 
-                this.scanFrame.className = isValid ? 'scan-frame found' : 'scan-frame not-found';
-                this.scanFrame.textContent = `${sku} - ${status}`;
+                this.scanOverlay.className = isValid ? 'scan-overlay success' : 'scan-overlay error';
+                this.scanOverlay.textContent = `SKU ${sku} - ${status}`;
+                this.showStatusMessage(`✓ Scanned: SKU ${sku} - ${status}`);
                 
                 this.playFeedbackSound(isValid);
+                this.resetOverlay();
             }
             
             addScan(barcode, sku, status, description, isValid, carton = null, scanCount = 1, quota = 0) {
@@ -786,19 +660,28 @@
                     quota
                 };
                 
-                this.updateRecentDisplay();
+                this.updateDisplay();
                 this.saveScanCounts();
             }
             
-            updateRecentDisplay() {
+            updateDisplay() {
+                // Update stats
+                const totalScans = Object.keys(this.skuData).length;
+                const uniqueSKUs = new Set(Object.values(this.skuData).map(s => s.sku)).size;
+                const floorStock = Object.values(this.skuData).filter(s => s.isValid).length;
+                
+                this.totalScansEl.textContent = totalScans;
+                this.uniqueSkusEl.textContent = uniqueSKUs;
+                this.floorStockEl.textContent = floorStock;
+                
+                // Update recent scans list
                 this.recentSkus.innerHTML = '';
                 
                 if (Object.keys(this.skuData).length === 0) {
-                    const message = this.apiKey ? 'No barcodes scanned yet' : 'Enter API key to start';
                     this.recentSkus.innerHTML = `
                         <div class="sku-item pending">
                             <div class="sku-line">
-                                <span>${message}</span>
+                                <span>No barcodes scanned yet</span>
                                 <span class="timestamp">Ready to scan</span>
                             </div>
                         </div>
@@ -806,7 +689,6 @@
                     return;
                 }
                 
-                // Sort by timestamp (newest first)
                 const sortedBarcodes = Object.keys(this.skuData).sort((a, b) => {
                     const timeA = new Date(this.skuData[a].fullTimestamp).getTime();
                     const timeB = new Date(this.skuData[b].fullTimestamp).getTime();
@@ -838,17 +720,18 @@
                 });
             }
             
-            startCooldown() {
-                this.scanCooldown = true;
-                this.scanBtn.disabled = true;
+            resetOverlay() {
                 setTimeout(() => {
-                    this.scanCooldown = false;
-                    this.scanBtn.disabled = false;
-                    this.scanFrame.className = 'scan-frame';
-                    this.scanFrame.textContent = 'Position barcode in frame';
-                    this.lastScannedBarcode = null;
-                    this.status.textContent = 'Ready to scan';
-                }, 1500);
+                    this.scanOverlay.className = 'scan-overlay';
+                    this.scanOverlay.textContent = 'Position barcode in frame';
+                }, 2000);
+            }
+            
+            showStatusMessage(message) {
+                this.status.textContent = message;
+                setTimeout(() => {
+                    this.status.textContent = 'Ready to scan - Point camera at barcode';
+                }, 3000);
             }
             
             playFeedbackSound(isValid) {
@@ -860,14 +743,32 @@
                     oscillator.connect(gainNode);
                     gainNode.connect(audioContext.destination);
                     
-                    oscillator.frequency.value = isValid ? 800 : 400;
-                    oscillator.type = 'sine';
-                    
-                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-                    
-                    oscillator.start(audioContext.currentTime);
-                    oscillator.stop(audioContext.currentTime + 0.3);
+                    if (isValid) {
+                        // Two beeps for valid
+                        oscillator.frequency.value = 800;
+                        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+                        
+                        oscillator.start(audioContext.currentTime);
+                        oscillator.stop(audioContext.currentTime + 0.1);
+                        
+                        const oscillator2 = audioContext.createOscillator();
+                        const gainNode2 = audioContext.createGain();
+                        oscillator2.connect(gainNode2);
+                        gainNode2.connect(audioContext.destination);
+                        oscillator2.frequency.value = 1000;
+                        gainNode2.gain.setValueAtTime(0.3, audioContext.currentTime + 0.15);
+                        gainNode2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.25);
+                        oscillator2.start(audioContext.currentTime + 0.15);
+                        oscillator2.stop(audioContext.currentTime + 0.25);
+                    } else {
+                        // One low beep for invalid
+                        oscillator.frequency.value = 300;
+                        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+                        oscillator.start(audioContext.currentTime);
+                        oscillator.stop(audioContext.currentTime + 0.3);
+                    }
                 } catch (error) {
                     // Audio context may not be available
                 }
@@ -875,7 +776,7 @@
         }
         
         window.addEventListener('load', () => {
-            new SKUScanner();
+            new BarcodeScanner();
         });
     </script>
 </body>
