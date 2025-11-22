@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SKU Scanner</title>
+    <title>SKU Scanner with Carton Tracking</title>
     <style>
         * {
             margin: 0;
@@ -104,9 +104,9 @@
             background: #218838;
         }
         .secondary-buttons {
-            display: flex;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
             gap: 10px;
-            flex-wrap: wrap;
         }
         h2 {
             font-size: 20px;
@@ -148,7 +148,6 @@
         .file-input-wrapper {
             position: relative;
             overflow: hidden;
-            display: inline-block;
         }
         .file-input-wrapper input[type=file] {
             position: absolute;
@@ -163,11 +162,18 @@
             font-size: 14px;
             border: none;
             transition: background 0.2s;
-            display: inline-block;
+            display: block;
+            text-align: center;
             font-weight: 500;
         }
         .file-input-label:hover {
             background: #0056b3;
+        }
+        .file-status {
+            font-size: 11px;
+            color: #28a745;
+            margin-top: 3px;
+            text-align: center;
         }
         .api-key-section {
             background: #2a2a2a;
@@ -228,6 +234,12 @@
             opacity: 0.8;
             margin-top: 5px;
         }
+        .sku-item .carton-info {
+            font-size: 13px;
+            opacity: 0.9;
+            margin-top: 3px;
+            color: #ffc107;
+        }
         .sku-item.valid {
             background: #28a745;
             color: white;
@@ -284,7 +296,7 @@
     <div class="camera-container">
         <video id="video" autoplay muted playsinline></video>
         <div class="overlay">
-            <div class="scan-frame" id="scanFrame">Position SKU in frame</div>
+            <div class="scan-frame" id="scanFrame">Position barcode in frame</div>
         </div>
         <canvas id="canvas" class="canvas-hidden"></canvas>
     </div>
@@ -299,18 +311,24 @@
                 <button class="btn scan-btn" id="scanBtn" disabled>SCAN NOW</button>
             </div>
             <div class="secondary-buttons">
+                <div class="file-input-wrapper">
+                    <input type="file" id="backstockInput" accept=".txt,.csv">
+                    <label for="backstockInput" class="file-input-label">Load Backstock List</label>
+                    <div class="file-status" id="backstockStatus"></div>
+                </div>
+                <div class="file-input-wrapper">
+                    <input type="file" id="cartonInput" accept=".txt,.csv">
+                    <label for="cartonInput" class="file-input-label">Load Carton Data</label>
+                    <div class="file-status" id="cartonStatus"></div>
+                </div>
                 <button class="btn export-btn" id="exportBtn">Export List</button>
                 <button class="btn reset-btn" id="resetBtn">Reset Counts</button>
-                <div class="file-input-wrapper">
-                    <input type="file" id="fileInput" accept=".txt,.csv">
-                    <label for="fileInput" class="file-input-label">Load Backstock List</label>
-                </div>
             </div>
         </div>
-        <h2>Recent SKUs</h2>
+        <h2>Recent Scans</h2>
         <div class="recent-skus" id="recentSkus">
             <div class="sku-item pending">
-                <span>Enter API key to start scanning</span>
+                <span>Load files and enter API key to start</span>
                 <span class="timestamp">Ready</span>
             </div>
         </div>
@@ -326,26 +344,39 @@
                 this.recentSkus = document.getElementById('recentSkus');
                 this.scanBtn = document.getElementById('scanBtn');
                 this.apiKeyInput = document.getElementById('apiKeyInput');
-                this.fileInput = document.getElementById('fileInput');
+                this.backstockInput = document.getElementById('backstockInput');
+                this.cartonInput = document.getElementById('cartonInput');
                 this.resetBtn = document.getElementById('resetBtn');
                 this.exportBtn = document.getElementById('exportBtn');
+                this.backstockStatus = document.getElementById('backstockStatus');
+                this.cartonStatus = document.getElementById('cartonStatus');
                 
+                // Backstock list (SKUs expected)
                 this.validSKUs = new Set();
                 this.skuQuotas = {};
+                
+                // Carton data (barcode -> carton# -> SKU mapping)
+                this.cartonData = {}; // { barcode: { carton: '...', sku: '...', desc: '...' } }
+                
+                // Scan tracking
                 this.skuCounts = {};
                 this.skuData = {};
+                this.scannedBarcodes = new Set();
+                
                 this.isScanning = false;
-                this.lastScannedSKU = null;
+                this.lastScannedBarcode = null;
                 this.scanCooldown = false;
                 this.apiKey = localStorage.getItem('visionApiKey') || '';
                 
                 this.init();
             }
+            
             async init() {
                 if (this.apiKey) {
                     this.apiKeyInput.value = this.apiKey;
                     this.scanBtn.disabled = false;
                 }
+                
                 this.apiKeyInput.addEventListener('input', (e) => {
                     this.apiKey = e.target.value.trim();
                     localStorage.setItem('visionApiKey', this.apiKey);
@@ -354,13 +385,15 @@
                         this.updateRecentDisplay();
                     }
                 });
+                
                 await this.setupCamera();
-                this.setupFileInput();
+                this.setupFileInputs();
                 this.setupScanButton();
                 this.setupResetButton();
                 this.setupExportButton();
                 this.loadScanCounts();
             }
+            
             async setupCamera() {
                 try {
                     const constraints = {
@@ -383,33 +416,123 @@
                     console.error('Camera setup error:', error);
                 }
             }
-            setupFileInput() {
-                this.fileInput.addEventListener('change', (event) => {
+            
+            setupFileInputs() {
+                // Backstock list input
+                this.backstockInput.addEventListener('change', (event) => {
                     const file = event.target.files[0];
                     if (file) {
-                        this.loadSKUList(file);
+                        this.loadBackstockList(file);
+                    }
+                });
+                
+                // Carton data input
+                this.cartonInput.addEventListener('change', (event) => {
+                    const file = event.target.files[0];
+                    if (file) {
+                        this.loadCartonData(file);
                     }
                 });
             }
+            
+            loadBackstockList(file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    const lines = text.split(/\r?\n/);
+                    this.validSKUs.clear();
+                    this.skuQuotas = {};
+                    
+                    lines.forEach(line => {
+                        const trimmed = line.trim();
+                        if (!trimmed) return;
+                        
+                        const parts = trimmed.split(',');
+                        const sku = parts[0].trim();
+                        const quantity = parts.length > 1 ? parseInt(parts[1].trim()) : 1;
+                        
+                        if (sku && /^\d+$/.test(sku)) {
+                            this.validSKUs.add(sku);
+                            this.skuQuotas[sku] = quantity;
+                        }
+                    });
+                    
+                    this.backstockStatus.textContent = `✓ ${this.validSKUs.size} SKUs loaded`;
+                    this.status.textContent = `Loaded ${this.validSKUs.size} backstock SKUs`;
+                    this.updateRecentDisplay();
+                    
+                    setTimeout(() => {
+                        this.status.textContent = 'Ready to scan';
+                    }, 2000);
+                };
+                reader.readAsText(file);
+            }
+            
+            loadCartonData(file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    const lines = text.split(/\r?\n/);
+                    this.cartonData = {};
+                    let count = 0;
+                    
+                    // Parse format: Carton#,SKU,Description,Barcode
+                    lines.forEach(line => {
+                        const trimmed = line.trim();
+                        if (!trimmed) return;
+                        
+                        const parts = trimmed.split(',');
+                        if (parts.length >= 4) {
+                            const carton = parts[0].trim();
+                            const sku = parts[1].trim();
+                            const desc = parts[2].trim();
+                            const barcode = parts[3].trim();
+                            
+                            if (barcode && sku) {
+                                this.cartonData[barcode] = {
+                                    carton: carton,
+                                    sku: sku,
+                                    desc: desc
+                                };
+                                count++;
+                            }
+                        }
+                    });
+                    
+                    this.cartonStatus.textContent = `✓ ${count} cartons loaded`;
+                    this.status.textContent = `Loaded ${count} carton mappings`;
+                    this.updateRecentDisplay();
+                    
+                    setTimeout(() => {
+                        this.status.textContent = 'Ready to scan';
+                    }, 2000);
+                };
+                reader.readAsText(file);
+            }
+            
             setupScanButton() {
                 this.scanBtn.addEventListener('click', () => {
                     if (!this.scanCooldown && this.apiKey) {
-                        this.scanForSKU();
+                        this.scanForBarcode();
                     }
                 });
+                
                 this.video.addEventListener('click', () => {
                     if (!this.scanCooldown && this.apiKey) {
-                        this.scanForSKU();
+                        this.scanForBarcode();
                     }
                 });
             }
+            
             setupResetButton() {
                 this.resetBtn.addEventListener('click', () => {
                     if (confirm('Reset all scan counts? This will clear your scanning progress.')) {
                         this.skuCounts = {};
                         this.skuData = {};
+                        this.scannedBarcodes.clear();
                         localStorage.removeItem('skuCounts');
                         localStorage.removeItem('skuData');
+                        localStorage.removeItem('scannedBarcodes');
                         this.updateRecentDisplay();
                         this.status.textContent = 'Scan counts reset';
                         setTimeout(() => {
@@ -418,24 +541,29 @@
                     }
                 });
             }
+            
             setupExportButton() {
                 this.exportBtn.addEventListener('click', () => {
                     this.exportScanData();
                 });
             }
+            
             exportScanData() {
                 if (Object.keys(this.skuCounts).length === 0) {
                     alert('No scans to export!');
                     return;
                 }
 
-                const sortedSKUs = Object.keys(this.skuCounts).sort((a, b) => {
-                    return parseInt(a) - parseInt(b);
+                const sortedSKUs = Object.keys(this.skuData).sort((a, b) => {
+                    const timeA = new Date(this.skuData[a].timestamp).getTime();
+                    const timeB = new Date(this.skuData[b].timestamp).getTime();
+                    return timeB - timeA;
                 });
 
-                let csvContent = 'SKU,Scan Count\n';
-                sortedSKUs.forEach(sku => {
-                    csvContent += `${sku},${this.skuCounts[sku]}\n`;
+                let csvContent = 'SKU,Description,Scan Count,Carton Number,Status,Timestamp\n';
+                sortedSKUs.forEach(barcode => {
+                    const scan = this.skuData[barcode];
+                    csvContent += `${scan.sku},"${scan.description}",${scan.scanCount},"${scan.carton || 'N/A'}",${scan.status},${scan.fullTimestamp}\n`;
                 });
 
                 const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -454,10 +582,12 @@
                     this.status.textContent = 'Ready to scan';
                 }, 2000);
             }
+            
             loadScanCounts() {
                 try {
                     const savedCounts = localStorage.getItem('skuCounts');
                     const savedData = localStorage.getItem('skuData');
+                    const savedBarcodes = localStorage.getItem('scannedBarcodes');
                     
                     if (savedCounts) {
                         this.skuCounts = JSON.parse(savedCounts);
@@ -467,56 +597,33 @@
                         this.skuData = JSON.parse(savedData);
                         this.updateRecentDisplay();
                     }
+                    
+                    if (savedBarcodes) {
+                        this.scannedBarcodes = new Set(JSON.parse(savedBarcodes));
+                    }
                 } catch (error) {
                     console.error('Error loading scan counts:', error);
                 }
             }
+            
             saveScanCounts() {
                 try {
                     localStorage.setItem('skuCounts', JSON.stringify(this.skuCounts));
                     localStorage.setItem('skuData', JSON.stringify(this.skuData));
+                    localStorage.setItem('scannedBarcodes', JSON.stringify([...this.scannedBarcodes]));
                 } catch (error) {
                     console.error('Error saving scan counts:', error);
                 }
             }
-            loadSKUList(file) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const text = e.target.result;
-                    const lines = text.split(/\r?\n/);
-                    this.validSKUs.clear();
-                    this.skuQuotas = {};
-                    
-                    lines.forEach(line => {
-                        const trimmed = line.trim();
-                        if (!trimmed) return;
-                        
-                        const parts = trimmed.split(',');
-                        const sku = parts[0].trim();
-                        const quantity = parts.length > 1 ? parseInt(parts[1].trim()) : 1;
-                        
-                        if (sku && /^0\d{5}$/.test(sku)) {
-                            this.validSKUs.add(sku);
-                            this.skuQuotas[sku] = quantity;
-                        }
-                    });
-                    
-                    this.status.textContent = `Loaded ${this.validSKUs.size} backstock SKUs`;
-                    this.updateRecentDisplay();
-                    
-                    setTimeout(() => {
-                        this.status.textContent = 'Ready to scan';
-                    }, 2000);
-                };
-                reader.readAsText(file);
-            }
-            async scanForSKU() {
+            
+            async scanForBarcode() {
                 if (this.isScanning || !this.apiKey) return;
                 
                 this.isScanning = true;
                 this.scanFrame.className = 'scan-frame scanning';
                 this.scanFrame.textContent = 'Analyzing...';
                 this.scanBtn.disabled = true;
+                
                 try {
                     if (this.video.readyState < 2) {
                         this.scanFrame.textContent = 'Camera loading...';
@@ -524,107 +631,32 @@
                         this.scanBtn.disabled = false;
                         return;
                     }
+                    
                     this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
-                    
                     const imageBase64 = this.canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
-                    
                     const result = await this.callVisionAPI(imageBase64);
                     
                     if (result && result.textAnnotations && result.textAnnotations.length > 0) {
                         const fullText = result.textAnnotations[0].description;
                         console.log('Vision API detected text:', fullText);
-                        console.log('All text annotations:', result.textAnnotations);
                         
-                        let sku = null;
-                        let detectedText = '';
-                        let skuIndex = -1;
+                        // Extract barcode (any long number sequence)
+                        const barcodeMatch = fullText.match(/\d{10,}/);
                         
-                        for (let i = 1; i < result.textAnnotations.length; i++) {
-                            const textBlock = result.textAnnotations[i].description.trim();
+                        if (barcodeMatch) {
+                            const barcode = barcodeMatch[0];
+                            this.scanFrame.textContent = `Found: ${barcode}`;
+                            this.status.textContent = `Detected barcode: ${barcode}`;
                             
-                            if (/^0\d{5}$/.test(textBlock)) {
-                                sku = textBlock;
-                                detectedText = textBlock;
-                                skuIndex = i;
-                                console.log('Found isolated SKU:', sku);
-                                break;
-                            }
-                            
-                            const embeddedMatch = textBlock.match(/[a-zA-Z]\d{2}(0\d{5})/i);
-                            if (embeddedMatch) {
-                                sku = embeddedMatch[1];
-                                detectedText = textBlock;
-                                skuIndex = i;
-                                console.log('Found SKU after letter-number-number:', sku, 'in text block:', textBlock);
-                                break;
-                            }
-                        }
-                        
-                        if (!sku) {
-                            const match = fullText.match(/(0\d{5})/);
-                            if (match) {
-                                sku = match[1];
-                                detectedText = match[0];
-                                console.log('Found SKU via full text pattern:', sku);
-                            }
-                        }
-                        
-                        let description = '';
-                        if (sku && skuIndex > 0) {
-                            const descParts = [];
-                            for (let i = skuIndex + 1; i < Math.min(skuIndex + 8, result.textAnnotations.length); i++) {
-                                const part = result.textAnnotations[i].description.trim();
-                                
-                                if (/^\d+$/.test(part)) break;
-                                if (/^(WESTLAND|MI)$/i.test(part)) break;
-                                
-                                if (part.length < 2) continue;
-                                
-                                descParts.push(part);
-                                if (descParts.length >= 6) break;
-                            }
-                            description = descParts.join(' ');
-                        }
-                        
-                        if (!description && sku) {
-                            const lines = fullText.split('\n');
-                            for (const line of lines) {
-                                if (line.includes(sku)) {
-                                    const lineIndex = lines.indexOf(line);
-                                    if (lineIndex + 1 < lines.length) {
-                                        const nextLine = lines[lineIndex + 1].trim();
-                                        if (!/^(0235|WESTLAND|MI)/i.test(nextLine)) {
-                                            description = nextLine;
-                                        }
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                        
-                        console.log('Extracted description:', description);
-                        
-                        if (sku) {
-                            this.scanFrame.textContent = `Found: ${sku}`;
-                            this.status.textContent = `Detected: ${sku}${detectedText !== sku ? ` (from: ${detectedText})` : ''}`;
-                            
-                            if (sku !== this.lastScannedSKU) {
-                                this.processSKU(sku, description);
-                                this.lastScannedSKU = sku;
+                            if (barcode !== this.lastScannedBarcode) {
+                                this.processBarcode(barcode);
+                                this.lastScannedBarcode = barcode;
                                 this.startCooldown();
                                 return;
                             }
                         } else {
-                            const allSixDigit = fullText.match(/\d{6}/g);
-                            
-                            if (allSixDigit && allSixDigit.length > 0) {
-                                const detectedNumbers = allSixDigit.join(', ');
-                                this.scanFrame.textContent = `Saw: ${detectedNumbers}`;
-                                this.status.textContent = 'Found numbers but no valid SKU format';
-                            } else {
-                                this.scanFrame.textContent = 'No 6-digit SKU found';
-                                this.status.textContent = `Text: ${fullText.substring(0, 40)}`;
-                            }
+                            this.scanFrame.textContent = 'No barcode found';
+                            this.status.textContent = 'Try better angle/lighting';
                         }
                     } else {
                         this.scanFrame.textContent = 'No text detected';
@@ -634,7 +666,7 @@
                     setTimeout(() => {
                         if (!this.scanCooldown) {
                             this.scanFrame.className = 'scan-frame';
-                            this.scanFrame.textContent = 'Position SKU in frame';
+                            this.scanFrame.textContent = 'Position barcode in frame';
                             this.scanBtn.disabled = false;
                         }
                     }, 1500);
@@ -648,6 +680,7 @@
                     this.isScanning = false;
                 }
             }
+            
             async callVisionAPI(imageBase64) {
                 const url = `https://vision.googleapis.com/v1/images:annotate?key=${this.apiKey}`;
                 
@@ -662,6 +695,7 @@
                         }]
                     }]
                 };
+                
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: {
@@ -669,14 +703,36 @@
                     },
                     body: JSON.stringify(requestBody)
                 });
+                
                 if (!response.ok) {
                     const error = await response.json();
                     throw new Error(error.error?.message || 'API request failed');
                 }
+                
                 const data = await response.json();
                 return data.responses[0];
             }
-            processSKU(sku, description = '') {
+            
+            processBarcode(barcode) {
+                // Look up barcode in carton data
+                const cartonInfo = this.cartonData[barcode];
+                
+                if (!cartonInfo) {
+                    // Barcode not in carton data
+                    this.addScan(barcode, null, 'UNKNOWN', 'Barcode not in carton data', false);
+                    this.scanFrame.className = 'scan-frame not-found';
+                    this.scanFrame.textContent = `${barcode} - NOT FOUND`;
+                    this.playFeedbackSound(false);
+                    return;
+                }
+                
+                const { carton, sku, desc } = cartonInfo;
+                
+                // Track if barcode already scanned
+                const alreadyScanned = this.scannedBarcodes.has(barcode);
+                this.scannedBarcodes.add(barcode);
+                
+                // Update SKU count
                 if (!this.skuCounts[sku]) {
                     this.skuCounts[sku] = 0;
                 }
@@ -700,30 +756,45 @@
                     isValid = true;
                 }
                 
-                const timestamp = new Date().toLocaleTimeString();
+                if (alreadyScanned) {
+                    status += ' (DUPLICATE)';
+                }
                 
-                this.skuData[sku] = {
-                    sku,
-                    description,
-                    status,
-                    isValid,
-                    timestamp,
-                    scanCount,
-                    quota
-                };
+                this.addScan(barcode, sku, status, desc, isValid, carton, scanCount, quota);
                 
                 this.scanFrame.className = isValid ? 'scan-frame found' : 'scan-frame not-found';
                 this.scanFrame.textContent = `${sku} - ${status}`;
                 
-                this.updateRecentDisplay();
-                this.saveScanCounts();
                 this.playFeedbackSound(isValid);
             }
+            
+            addScan(barcode, sku, status, description, isValid, carton = null, scanCount = 1, quota = 0) {
+                const now = new Date();
+                const timestamp = now.toLocaleTimeString();
+                const fullTimestamp = now.toISOString();
+                
+                this.skuData[barcode] = {
+                    barcode,
+                    sku: sku || barcode,
+                    description,
+                    status,
+                    isValid,
+                    timestamp,
+                    fullTimestamp,
+                    carton,
+                    scanCount,
+                    quota
+                };
+                
+                this.updateRecentDisplay();
+                this.saveScanCounts();
+            }
+            
             updateRecentDisplay() {
                 this.recentSkus.innerHTML = '';
                 
                 if (Object.keys(this.skuData).length === 0) {
-                    const message = this.apiKey ? 'No SKUs scanned yet' : 'Enter API key to start';
+                    const message = this.apiKey ? 'No barcodes scanned yet' : 'Enter API key to start';
                     this.recentSkus.innerHTML = `
                         <div class="sku-item pending">
                             <div class="sku-line">
@@ -735,27 +806,30 @@
                     return;
                 }
                 
-                const sortedSKUs = Object.keys(this.skuData).sort((a, b) => {
-                    return parseInt(a) - parseInt(b);
+                // Sort by timestamp (newest first)
+                const sortedBarcodes = Object.keys(this.skuData).sort((a, b) => {
+                    const timeA = new Date(this.skuData[a].fullTimestamp).getTime();
+                    const timeB = new Date(this.skuData[b].fullTimestamp).getTime();
+                    return timeB - timeA;
                 });
                 
-                sortedSKUs.forEach(sku => {
-                    const scan = this.skuData[sku];
+                sortedBarcodes.forEach(barcode => {
+                    const scan = this.skuData[barcode];
                     const div = document.createElement('div');
                     
                     const className = scan.isValid ? 'valid' : 'invalid';
                     div.className = `sku-item ${className}`;
                     
                     const quotaInfo = scan.quota > 0 ? ` (${scan.scanCount}/${scan.quota})` : '';
-                    const scanCountDisplay = scan.scanCount > 1 ? ` x${scan.scanCount}` : '';
                     
                     div.innerHTML = `
                         <div class="sku-line">
-                            <span>${scan.sku}${scanCountDisplay} - ${scan.status}</span>
+                            <span>SKU: ${scan.sku} - ${scan.status}</span>
                         </div>
                         ${scan.description ? `<div class="description">${scan.description}</div>` : ''}
+                        ${scan.carton ? `<div class="carton-info">📦 Carton: ${scan.carton}</div>` : ''}
                         <div class="scan-info">
-                            <span>${quotaInfo}</span>
+                            <span>Barcode: ${scan.barcode}${quotaInfo}</span>
                             <span class="timestamp">${scan.timestamp}</span>
                         </div>
                     `;
@@ -763,6 +837,7 @@
                     this.recentSkus.appendChild(div);
                 });
             }
+            
             startCooldown() {
                 this.scanCooldown = true;
                 this.scanBtn.disabled = true;
@@ -770,11 +845,12 @@
                     this.scanCooldown = false;
                     this.scanBtn.disabled = false;
                     this.scanFrame.className = 'scan-frame';
-                    this.scanFrame.textContent = 'Position SKU in frame';
-                    this.lastScannedSKU = null;
+                    this.scanFrame.textContent = 'Position barcode in frame';
+                    this.lastScannedBarcode = null;
                     this.status.textContent = 'Ready to scan';
-                }, 1000);
+                }, 1500);
             }
+            
             playFeedbackSound(isValid) {
                 try {
                     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -793,9 +869,11 @@
                     oscillator.start(audioContext.currentTime);
                     oscillator.stop(audioContext.currentTime + 0.3);
                 } catch (error) {
+                    // Audio context may not be available
                 }
             }
         }
+        
         window.addEventListener('load', () => {
             new SKUScanner();
         });
