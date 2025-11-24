@@ -655,35 +655,41 @@
                 this.validSKUs.clear();
                 this.skuQuotas = {};
                 
-                const lines = text.split('\n');
+                const lines = text.split('\n').map(l => l.trim());
                 console.log(`Parsing ${lines.length} lines from backstock PDF...`);
                 console.log('First 60 lines of backstock text:');
                 lines.slice(0, 60).forEach((line, i) => console.log(`  ${i}: "${line}"`));
                 
-                for (let line of lines) {
-                    line = line.trim();
-                    if (!line || line.length < 10) continue;
+                // Find lines with SKU pattern "XXX *"
+                for (let i = 0; i < lines.length; i++) {
+                    const skuMatch = lines[i].match(/^(\d{3,6})\s*\*$/);
+                    if (!skuMatch) continue;
                     
-                    // Skip header lines
-                    if (line.includes('SKU') && line.includes('DESCRIPTION')) continue;
-                    if (line.includes('Harbor Freight')) continue;
+                    const sku = skuMatch[1];
                     
-                    // Split by multiple spaces (table columns)
-                    const parts = line.split(/\s{2,}/);
-                    
-                    // First part should be SKU (3-6 digits)
-                    if (parts.length >= 3) {
-                        const skuMatch = parts[0].match(/^(\d{3,6})$/);
-                        if (skuMatch) {
-                            const sku = skuMatch[1];
-                            // Third part should be COUNT
-                            const countMatch = parts[2].match(/^(\d{1,5})$/);
-                            if (countMatch) {
-                                const count = parseInt(countMatch[1]);
-                                this.validSKUs.add(sku);
-                                this.skuQuotas[sku] = count;
-                                console.log(`  Found: SKU ${sku}, COUNT ${count}`);
-                            }
+                    // Look ahead to find COUNT
+                    // Pattern: after SKU line, there's an ID, then clean SKU, then description (text),
+                    // then the first 1-5 digit number is COUNT
+                    let foundDescription = false;
+                    for (let j = i + 1; j < Math.min(i + 20, lines.length); j++) {
+                        const line = lines[j];
+                        
+                        // Skip the internal ID and clean SKU (both are numbers)
+                        if (j <= i + 2) continue;
+                        
+                        // Once we see text (description), mark it
+                        if (/[a-zA-Z]/.test(line)) {
+                            foundDescription = true;
+                            continue;
+                        }
+                        
+                        // After description, first 1-5 digit number is COUNT
+                        if (foundDescription && /^\d{1,5}$/.test(line)) {
+                            const count = parseInt(line);
+                            this.validSKUs.add(sku);
+                            this.skuQuotas[sku] = count;
+                            console.log(`  Found: SKU ${sku}, COUNT ${count}`);
+                            break;
                         }
                     }
                 }
