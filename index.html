@@ -522,12 +522,19 @@
                 this.backstockStatus.classList.remove('error');
                 
                 try {
-                    const base64 = await this.pdfToBase64(file);
-                    const text = await this.extractTextWithVisionAPI(base64);
+                    const images = await this.pdfPagesToImages(file);
+                    console.log(`Backstock PDF: ${images.length} pages`);
                     
-                    console.log('Backstock PDF extracted text length:', text.length);
+                    let allText = '';
+                    for (let i = 0; i < images.length; i++) {
+                        this.backstockStatus.textContent = `Processing page ${i+1}/${images.length}...`;
+                        const text = await this.extractTextWithVisionAPI(images[i]);
+                        allText += text + '\n';
+                    }
                     
-                    this.parseBackstockData(text);
+                    console.log('Backstock extracted text length:', allText.length);
+                    
+                    this.parseBackstockData(allText);
                     this.backstockLabel.textContent = '✓ Backstock Loaded';
                     this.backstockStatus.textContent = `✓ ${this.validSKUs.size} SKUs`;
                     this.showStatusMessage(`Loaded ${this.validSKUs.size} backstock SKUs`);
@@ -549,12 +556,19 @@
                 this.cartonStatus.classList.remove('error');
                 
                 try {
-                    const base64 = await this.pdfToBase64(file);
-                    const text = await this.extractTextWithVisionAPI(base64);
+                    const images = await this.pdfPagesToImages(file);
+                    console.log(`Carton PDF: ${images.length} pages`);
                     
-                    console.log('Carton PDF extracted text length:', text.length);
+                    let allText = '';
+                    for (let i = 0; i < images.length; i++) {
+                        this.cartonStatus.textContent = `Processing page ${i+1}/${images.length}...`;
+                        const text = await this.extractTextWithVisionAPI(images[i]);
+                        allText += text + '\n';
+                    }
                     
-                    this.parseCartonData(text);
+                    console.log('Carton extracted text length:', allText.length);
+                    
+                    this.parseCartonData(allText);
                     const count = Object.keys(this.cartonData).length;
                     this.cartonLabel.textContent = '✓ Carton Loaded';
                     this.cartonStatus.textContent = `✓ ${count} mappings`;
@@ -570,24 +584,39 @@
                 }
             }
             
-            async pdfToBase64(file) {
-                return new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        const base64 = reader.result.split(',')[1];
-                        resolve(base64);
-                    };
-                    reader.onerror = reject;
-                    reader.readAsDataURL(file);
-                });
+            async pdfPagesToImages(file) {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                const images = [];
+                
+                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                    const page = await pdf.getPage(pageNum);
+                    const viewport = page.getViewport({ scale: 2.0 }); // Higher scale = better quality
+                    
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+                    
+                    await page.render({
+                        canvasContext: context,
+                        viewport: viewport
+                    }).promise;
+                    
+                    // Convert canvas to base64 JPEG
+                    const base64 = canvas.toDataURL('image/jpeg', 0.95).split(',')[1];
+                    images.push(base64);
+                }
+                
+                return images;
             }
             
-            async extractTextWithVisionAPI(base64Pdf) {
+            async extractTextWithVisionAPI(base64Image) {
                 const url = `https://vision.googleapis.com/v1/images:annotate?key=${this.apiKey}`;
                 
                 const requestBody = {
                     requests: [{
-                        image: { content: base64Pdf },
+                        image: { content: base64Image },
                         features: [{ type: 'DOCUMENT_TEXT_DETECTION' }]
                     }]
                 };
@@ -604,12 +633,22 @@
                 }
                 
                 const data = await response.json();
+                const result = data.responses[0];
                 
-                if (!data.responses || !data.responses[0].fullTextAnnotation) {
-                    throw new Error('No text found in PDF');
+                if (result.error) {
+                    throw new Error(result.error.message);
                 }
                 
-                return data.responses[0].fullTextAnnotation.text;
+                if (!result.fullTextAnnotation && !result.textAnnotations) {
+                    throw new Error('No text found in image');
+                }
+                
+                // Use fullTextAnnotation if available, otherwise join textAnnotations
+                if (result.fullTextAnnotation) {
+                    return result.fullTextAnnotation.text;
+                } else {
+                    return result.textAnnotations.map(t => t.description).join(' ');
+                }
             }
             
             parseBackstockData(text) {
@@ -621,21 +660,34 @@
                 
                 for (let line of lines) {
                     line = line.trim();
-                    if (!line) continue;
+                    if (!line || line.length < 10) continue;
                     
-                    // Match: SKU (3-6 digits) at start, followed by description, then COUNT column
-                    const match = line.match(/^(\d{3,6})\s+(.+?)\s+(\d{1,4})\s+/);
+                    // Skip header lines
+                    if (line.includes('SKU') && line.includes('DESCRIPTION')) continue;
+                    if (line.includes('Harbor Freight')) continue;
                     
-                    if (match) {
-                        const sku = match[1];
-                        const count = parseInt(match[3]);
-                        
-                        this.validSKUs.add(sku);
-                        this.skuQuotas[sku] = count;
+                    // Split by multiple spaces (table columns)
+                    const parts = line.split(/\s{2,}/);
+                    
+                    // First part should be SKU (3-6 digits)
+                    if (parts.length >= 3) {
+                        const skuMatch = parts[0].match(/^(\d{3,6})$/);
+                        if (skuMatch) {
+                            const sku = skuMatch[1];
+                            // Third part should be COUNT
+                            const countMatch = parts[2].match(/^(\d{1,5})$/);
+                            if (countMatch) {
+                                const count = parseInt(countMatch[1]);
+                                this.validSKUs.add(sku);
+                                this.skuQuotas[sku] = count;
+                                console.log(`  Found: SKU ${sku}, COUNT ${count}`);
+                            }
+                        }
                     }
                 }
                 
                 console.log(`✓ Parsed ${this.validSKUs.size} SKUs from backstock`);
+                console.log('Sample SKUs:', Array.from(this.validSKUs).slice(0, 5));
             }
             
             parseCartonData(text) {
@@ -648,41 +700,54 @@
                     line = line.trim();
                     if (!line || line.length < 20) continue;
                     
-                    // Find barcode (starts with 0, 15+ digits)
-                    const barcodeMatch = line.match(/\b(0\d{14,})\b/);
+                    // Skip headers
+                    if (line.includes('Carton#') || line.includes('Harbor Freight')) continue;
+                    
+                    // Look for barcode (Carton#): starts with 0, 15-20 digits
+                    const barcodeMatch = line.match(/\b(0\d{14,20})\b/);
                     if (!barcodeMatch) continue;
                     
                     const barcode = barcodeMatch[1];
-                    const afterBarcode = line.substring(line.indexOf(barcode) + barcode.length);
                     
-                    // Look for Slapper or Tote
-                    const typeMatch = afterBarcode.match(/\b(Slapper|Tote)\b/i);
-                    if (!typeMatch) continue;
+                    // Split by multiple spaces to get columns
+                    const parts = line.split(/\s{2,}/);
                     
-                    // SKU comes after the type
-                    const afterType = afterBarcode.substring(afterBarcode.indexOf(typeMatch[0]) + typeMatch[0].length);
-                    const skuMatch = afterType.match(/\b(\d{4,6})\b/);
+                    // Find which part contains the barcode
+                    let barcodeIndex = -1;
+                    for (let i = 0; i < parts.length; i++) {
+                        if (parts[i].includes(barcode)) {
+                            barcodeIndex = i;
+                            break;
+                        }
+                    }
                     
-                    if (skuMatch) {
-                        const sku = skuMatch[1];
+                    if (barcodeIndex === -1) continue;
+                    
+                    // Columns after barcode: Carton Type, SKU, Description, SKU Count, Qty Total
+                    // We need: SKU (index+2), Description (index+3), Qty Total (index+5)
+                    if (parts.length > barcodeIndex + 3) {
+                        // Carton Type is index+1 (Slapper/Tote)
+                        // SKU is index+2
+                        const skuPart = parts[barcodeIndex + 2];
+                        const skuMatch = skuPart.match(/^(\d{4,6})$/);
                         
-                        // Extract description
-                        const afterSKU = afterType.substring(afterType.indexOf(sku) + sku.length);
-                        let desc = afterSKU.replace(/^\s*\d+\s*/, '')
-                                          .replace(/\s+\d+\s+\d+\s*$/, '')
-                                          .trim()
-                                          .substring(0, 80);
-                        
-                        this.cartonData[barcode] = {
-                            carton: barcode.substring(0, 15),
-                            sku: sku,
-                            desc: desc || 'Product'
-                        };
+                        if (skuMatch) {
+                            const sku = skuMatch[1];
+                            const desc = parts[barcodeIndex + 3] || 'Product';
+                            
+                            this.cartonData[barcode] = {
+                                carton: barcode.substring(0, 15),
+                                sku: sku,
+                                desc: desc.substring(0, 80)
+                            };
+                            
+                            console.log(`  Found: Barcode ${barcode} -> SKU ${sku}`);
+                        }
                     }
                 }
                 
                 console.log(`✓ Parsed ${Object.keys(this.cartonData).length} cartons`);
-                console.log('Sample:', Object.entries(this.cartonData).slice(0, 2));
+                console.log('Sample entries:', Object.entries(this.cartonData).slice(0, 3));
             }
             
             updateScanOverlay() {
