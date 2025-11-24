@@ -657,6 +657,8 @@
                 
                 const lines = text.split('\n');
                 console.log(`Parsing ${lines.length} lines from backstock PDF...`);
+                console.log('First 20 lines of backstock text:');
+                lines.slice(0, 20).forEach((line, i) => console.log(`  ${i}: "${line}"`));
                 
                 for (let line of lines) {
                     line = line.trim();
@@ -695,6 +697,8 @@
                 
                 const lines = text.split('\n');
                 console.log(`Parsing ${lines.length} lines from carton PDF...`);
+                console.log('First 30 lines of carton text:');
+                lines.slice(0, 30).forEach((line, i) => console.log(`  ${i}: "${line}"`));
                 
                 for (let line of lines) {
                     line = line.trim();
