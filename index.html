@@ -700,58 +700,58 @@
             parseCartonData(text) {
                 this.cartonData = {};
                 
-                const lines = text.split('\n');
+                const lines = text.split('\n').map(l => l.trim());
                 console.log(`Parsing ${lines.length} lines from carton PDF...`);
                 console.log('First 60 lines of carton text:');
                 lines.slice(0, 60).forEach((line, i) => console.log(`  ${i}: "${line}"`));
                 
-                for (let line of lines) {
-                    line = line.trim();
-                    if (!line || line.length < 20) continue;
+                // Find lines with 15-digit barcode starting with 0
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
                     
-                    // Skip headers
-                    if (line.includes('Carton#') || line.includes('Harbor Freight')) continue;
+                    // Look for 15-digit barcode starting with 0
+                    if (!/^0\d{14}$/.test(line)) continue;
                     
-                    // Look for barcode (Carton#): starts with 0, 15-20 digits
-                    const barcodeMatch = line.match(/\b(0\d{14,20})\b/);
-                    if (!barcodeMatch) continue;
+                    const barcodePart1 = line;
                     
-                    const barcode = barcodeMatch[1];
+                    // Next line should be 5 digits (second part of barcode)
+                    if (i + 1 >= lines.length) continue;
+                    const nextLine = lines[i + 1];
                     
-                    // Split by multiple spaces to get columns
-                    const parts = line.split(/\s{2,}/);
+                    // Check if next line is 5 digits (or 3-6 digits to be flexible)
+                    const barcodePart2Match = nextLine.match(/^(\d{3,6})$/);
+                    if (!barcodePart2Match) continue;
                     
-                    // Find which part contains the barcode
-                    let barcodeIndex = -1;
-                    for (let i = 0; i < parts.length; i++) {
-                        if (parts[i].includes(barcode)) {
-                            barcodeIndex = i;
+                    const barcodePart2 = barcodePart2Match[1];
+                    const fullBarcode = barcodePart1 + barcodePart2;
+                    
+                    // Look ahead for "Slapper" (we only want Slappers)
+                    let foundSlapper = false;
+                    let sku = null;
+                    
+                    for (let j = i + 2; j < Math.min(i + 20, lines.length); j++) {
+                        const checkLine = lines[j];
+                        
+                        // Look for "Slapper"
+                        if (checkLine === "Slapper") {
+                            foundSlapper = true;
+                            continue;
+                        }
+                        
+                        // After finding Slapper, look for SKU (4-6 digits)
+                        if (foundSlapper && /^\d{4,6}$/.test(checkLine)) {
+                            sku = checkLine;
                             break;
                         }
                     }
                     
-                    if (barcodeIndex === -1) continue;
-                    
-                    // Columns after barcode: Carton Type, SKU, Description, SKU Count, Qty Total
-                    // We need: SKU (index+2), Description (index+3), Qty Total (index+5)
-                    if (parts.length > barcodeIndex + 3) {
-                        // Carton Type is index+1 (Slapper/Tote)
-                        // SKU is index+2
-                        const skuPart = parts[barcodeIndex + 2];
-                        const skuMatch = skuPart.match(/^(\d{4,6})$/);
-                        
-                        if (skuMatch) {
-                            const sku = skuMatch[1];
-                            const desc = parts[barcodeIndex + 3] || 'Product';
-                            
-                            this.cartonData[barcode] = {
-                                carton: barcode.substring(0, 15),
-                                sku: sku,
-                                desc: desc.substring(0, 80)
-                            };
-                            
-                            console.log(`  Found: Barcode ${barcode} -> SKU ${sku}`);
-                        }
+                    if (foundSlapper && sku) {
+                        this.cartonData[fullBarcode] = {
+                            carton: fullBarcode,
+                            sku: sku,
+                            desc: 'Product' // We don't need description
+                        };
+                        console.log(`  Found: Barcode ${fullBarcode} -> SKU ${sku}`);
                     }
                 }
                 
