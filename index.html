@@ -660,32 +660,31 @@
                 console.log('First 60 lines of backstock text:');
                 lines.slice(0, 60).forEach((line, i) => console.log(`  ${i}: "${line}"`));
                 
-                // Find lines with SKU pattern "XXX *"
+                // Find lines with plain SKU (3-6 digits, no asterisk or other characters)
                 for (let i = 0; i < lines.length; i++) {
-                    const skuMatch = lines[i].match(/^(\d{3,6})\s*\*$/);
-                    if (!skuMatch) continue;
+                    const line = lines[i];
                     
-                    const sku = skuMatch[1];
+                    // Skip lines with asterisks or other non-digit characters
+                    if (!/^\d{3,6}$/.test(line)) continue;
                     
-                    // Look ahead to find COUNT
-                    // Pattern: after SKU line, there's an ID, then clean SKU, then description (text),
-                    // then the first 1-5 digit number is COUNT
-                    let foundDescription = false;
-                    for (let j = i + 1; j < Math.min(i + 20, lines.length); j++) {
-                        const line = lines[j];
+                    const sku = line;
+                    
+                    // Look ahead: next line(s) with text = description
+                    // First number after description = COUNT
+                    let inDescription = false;
+                    
+                    for (let j = i + 1; j < Math.min(i + 15, lines.length); j++) {
+                        const nextLine = lines[j];
                         
-                        // Skip the internal ID and clean SKU (both are numbers)
-                        if (j <= i + 2) continue;
-                        
-                        // Once we see text (description), mark it
-                        if (/[a-zA-Z]/.test(line)) {
-                            foundDescription = true;
+                        // Line with letters = description
+                        if (/[a-zA-Z]/.test(nextLine)) {
+                            inDescription = true;
                             continue;
                         }
                         
                         // After description, first 1-5 digit number is COUNT
-                        if (foundDescription && /^\d{1,5}$/.test(line)) {
-                            const count = parseInt(line);
+                        if (inDescription && /^\d{1,5}$/.test(nextLine)) {
+                            const count = parseInt(nextLine);
                             this.validSKUs.add(sku);
                             this.skuQuotas[sku] = count;
                             console.log(`  Found: SKU ${sku}, COUNT ${count}`);
