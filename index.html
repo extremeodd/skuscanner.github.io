@@ -479,7 +479,7 @@
                     }
                     
                     Quagga.start();
-                    this.status.textContent = this.apiKey ? 'Enter API key above' : 'Camera ready';
+                    this.status.textContent = 'Camera ready - Upload PDFs to start scanning';
                 });
                 
                 Quagga.onDetected((data) => {
@@ -489,7 +489,8 @@
             }
             
             handleBarcodeDetected(barcode) {
-                if (!this.apiKey || Object.keys(this.cartonData).length === 0) {
+                // Only scan if both PDFs are loaded
+                if (this.validSKUs.size === 0 || Object.keys(this.cartonData).length === 0) {
                     return;
                 }
                 
@@ -800,6 +801,7 @@
                             </div>
                         `;
                         
+                        this.updateDisplay();
                         this.showStatusMessage('✓ All scans reset');
                     }
                 });
