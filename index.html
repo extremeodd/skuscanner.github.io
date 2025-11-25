@@ -26,15 +26,22 @@
             justify-content: center;
             align-items: center;
             background: #1a1a1a;
+            overflow: hidden;
+            z-index: 1;
         }
         #interactive {
             width: 100%;
             height: 100%;
+            position: relative;
         }
-        #interactive video {
+        #interactive video,
+        #interactive canvas {
             width: 100%;
             height: 100%;
             object-fit: cover;
+            position: absolute;
+            top: 0;
+            left: 0;
         }
         .scan-overlay {
             position: absolute;
@@ -54,6 +61,7 @@
             font-weight: bold;
             text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.9);
             background: rgba(0, 255, 0, 0.05);
+            z-index: 10;
         }
         .scan-overlay.scanning {
             border-color: #ffaa00;
@@ -72,7 +80,44 @@
             0%, 100% { opacity: 0.8; }
             50% { opacity: 1; }
         }
+        
+        /* Manual scan button */
+        .scan-button {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: #00ff00;
+            border: 4px solid white;
+            cursor: pointer;
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 4px 15px rgba(0, 255, 0, 0.4);
+            transition: transform 0.1s, background 0.2s;
+        }
+        .scan-button:active {
+            transform: translateX(-50%) scale(0.95);
+            background: #00cc00;
+        }
+        .scan-button.disabled {
+            background: #666;
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+        .scan-button.scanning {
+            background: #ffaa00;
+            animation: pulse 0.5s infinite;
+        }
+        
         .results-container {
+            position: relative;
+            z-index: 10;
             flex: 1;
             background: #1a1a1a;
             padding: 20px;
@@ -84,6 +129,8 @@
             padding: 15px;
             border-radius: 8px;
             margin-bottom: 15px;
+            position: relative;
+            z-index: 100;
         }
         .api-key-section label {
             display: block;
@@ -93,12 +140,14 @@
         }
         .api-key-section input {
             width: 100%;
-            padding: 10px;
+            padding: 12px;
             background: #1a1a1a;
             border: 2px solid #555;
             border-radius: 6px;
             color: white;
             font-size: 16px;
+            -webkit-appearance: none;
+            appearance: none;
         }
         .api-key-section input:focus {
             outline: none;
@@ -107,13 +156,16 @@
         .api-key-section small {
             color: #aaa;
             display: block;
-            margin-top: 5px;
-            font-size: 11px;
+            margin-top: 8px;
+            font-size: 12px;
+            line-height: 1.4;
         }
         .api-key-section a {
             color: #4da6ff;
             text-decoration: underline;
             cursor: pointer;
+            display: inline-block;
+            padding: 2px 0;
         }
         .controls {
             display: flex;
@@ -326,13 +378,14 @@
     <div class="camera-container">
         <div id="interactive" class="viewport"></div>
         <div class="scan-overlay" id="scanOverlay">Enter API key first</div>
+        <button class="scan-button disabled" id="scanButton">📷</button>
     </div>
 
     <div class="results-container">
         <div class="api-key-section">
             <label for="apiKeyInput">Google Cloud Vision API Key:</label>
-            <input type="password" id="apiKeyInput" placeholder="Enter your API key">
-            <small>Get your API key from <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color: #4da6ff;">Google Cloud Console</a> (enable Cloud Vision API)</small>
+            <input type="text" id="apiKeyInput" placeholder="Enter your API key" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+            <small>Get your API key from <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console</a> (enable Cloud Vision API)</small>
         </div>
 
         <div class="stats-bar">
@@ -400,6 +453,7 @@
                 this.totalScansEl = document.getElementById('totalScans');
                 this.uniqueSkusEl = document.getElementById('uniqueSkus');
                 this.floorStockEl = document.getElementById('floorStock');
+                this.scanButton = document.getElementById('scanButton');
                 
                 this.apiKey = localStorage.getItem('visionApiKey') || '';
                 this.validSKUs = new Set();
@@ -409,9 +463,10 @@
                 this.skuData = {};
                 this.scannedBarcodes = new Set();
                 
-                this.lastBarcode = null;
-                this.lastScanTime = 0;
-                this.scanCooldown = 1000;
+                // For manual scan - store last detected barcode
+                this.lastDetectedBarcode = null;
+                this.lastDetectedTime = 0;
+                this.isScanning = false;
                 
                 this.init();
             }
@@ -437,6 +492,7 @@
                 
                 this.setupFileInputs();
                 this.setupButtons();
+                this.setupScanButton();
                 this.loadScanCounts();
                 this.startScanner();
             }
@@ -453,6 +509,77 @@
                 this.cartonInput.disabled = true;
                 this.backstockLabel.style.cursor = 'not-allowed';
                 this.cartonLabel.style.cursor = 'not-allowed';
+            }
+            
+            setupScanButton() {
+                this.scanButton.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.triggerManualScan();
+                });
+                
+                // Also support touch
+                this.scanButton.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.triggerManualScan();
+                });
+            }
+            
+            triggerManualScan() {
+                // Check if ready
+                if (this.validSKUs.size === 0 || Object.keys(this.cartonData).length === 0) {
+                    this.showStatusMessage('⚠️ Load both PDFs first');
+                    return;
+                }
+                
+                if (this.isScanning) return;
+                
+                this.isScanning = true;
+                this.scanButton.classList.add('scanning');
+                this.scanOverlay.className = 'scan-overlay scanning';
+                this.scanOverlay.textContent = 'Scanning...';
+                
+                // If we have a recently detected barcode (within last 2 seconds), use it
+                const now = Date.now();
+                if (this.lastDetectedBarcode && (now - this.lastDetectedTime) < 2000) {
+                    this.processBarcode(this.lastDetectedBarcode);
+                    this.finishScan();
+                    return;
+                }
+                
+                // Otherwise wait briefly for detection
+                let attempts = 0;
+                const checkInterval = setInterval(() => {
+                    attempts++;
+                    if (this.lastDetectedBarcode && (Date.now() - this.lastDetectedTime) < 500) {
+                        clearInterval(checkInterval);
+                        this.processBarcode(this.lastDetectedBarcode);
+                        this.finishScan();
+                    } else if (attempts > 20) { // 2 seconds timeout
+                        clearInterval(checkInterval);
+                        this.scanOverlay.className = 'scan-overlay error';
+                        this.scanOverlay.textContent = 'No barcode found';
+                        this.showStatusMessage('⚠️ No barcode detected - try again');
+                        this.finishScan();
+                    }
+                }, 100);
+            }
+            
+            finishScan() {
+                this.isScanning = false;
+                this.scanButton.classList.remove('scanning');
+                setTimeout(() => {
+                    this.resetOverlay();
+                }, 1500);
+            }
+            
+            updateScanButton() {
+                if (Object.keys(this.cartonData).length > 0 && this.validSKUs.size > 0) {
+                    this.scanButton.classList.remove('disabled');
+                } else {
+                    this.scanButton.classList.add('disabled');
+                }
             }
             
             startScanner() {
@@ -489,34 +616,18 @@
                     this.status.textContent = 'Camera ready - Upload PDFs to start scanning';
                 });
                 
+                // Continuous detection - just store the barcode, don't process
                 Quagga.onDetected((data) => {
                     const barcode = data.codeResult.code;
                     console.log('Quagga detected barcode:', barcode);
-                    this.handleBarcodeDetected(barcode);
+                    this.lastDetectedBarcode = barcode;
+                    this.lastDetectedTime = Date.now();
+                    
+                    // Visual feedback that a barcode is in view
+                    if (!this.isScanning && this.validSKUs.size > 0 && Object.keys(this.cartonData).length > 0) {
+                        this.scanOverlay.textContent = `Tap to scan: ${barcode}`;
+                    }
                 });
-            }
-            
-            handleBarcodeDetected(barcode) {
-                console.log('handleBarcodeDetected called with:', barcode);
-                console.log('validSKUs size:', this.validSKUs.size);
-                console.log('cartonData length:', Object.keys(this.cartonData).length);
-                
-                // Only scan if both PDFs are loaded
-                if (this.validSKUs.size === 0 || Object.keys(this.cartonData).length === 0) {
-                    console.log('Skipping - PDFs not loaded');
-                    return;
-                }
-                
-                const now = Date.now();
-                if (barcode === this.lastBarcode && (now - this.lastScanTime) < this.scanCooldown) {
-                    console.log('Skipping - cooldown active');
-                    return;
-                }
-                
-                console.log('Processing barcode...');
-                this.lastBarcode = barcode;
-                this.lastScanTime = now;
-                this.processBarcode(barcode);
             }
             
             setupFileInputs() {
@@ -555,6 +666,7 @@
                     this.backstockStatus.textContent = `✓ ${this.validSKUs.size} SKUs`;
                     this.showStatusMessage(`Loaded ${this.validSKUs.size} backstock SKUs`);
                     this.updateScanOverlay();
+                    this.updateScanButton();
                 } catch (error) {
                     console.error('Error loading backstock PDF:', error);
                     this.backstockLabel.textContent = '❌ PDF Error';
@@ -590,6 +702,7 @@
                     this.cartonStatus.textContent = `✓ ${count} mappings`;
                     this.showStatusMessage(`Loaded ${count} carton mappings`);
                     this.updateScanOverlay();
+                    this.updateScanButton();
                 } catch (error) {
                     console.error('Error loading carton PDF:', error);
                     this.cartonLabel.textContent = '❌ PDF Error';
@@ -607,7 +720,7 @@
                 
                 for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                     const page = await pdf.getPage(pageNum);
-                    const viewport = page.getViewport({ scale: 2.0 }); // Higher scale = better quality
+                    const viewport = page.getViewport({ scale: 2.0 });
                     
                     const canvas = document.createElement('canvas');
                     const context = canvas.getContext('2d');
@@ -619,7 +732,6 @@
                         viewport: viewport
                     }).promise;
                     
-                    // Convert canvas to base64 JPEG
                     const base64 = canvas.toDataURL('image/jpeg', 0.95).split(',')[1];
                     images.push(base64);
                 }
@@ -659,7 +771,6 @@
                     throw new Error('No text found in image');
                 }
                 
-                // Use fullTextAnnotation if available, otherwise join textAnnotations
                 if (result.fullTextAnnotation) {
                     return result.fullTextAnnotation.text;
                 } else {
@@ -676,29 +787,22 @@
                 console.log('First 60 lines of backstock text:');
                 lines.slice(0, 60).forEach((line, i) => console.log(`  ${i}: "${line}"`));
                 
-                // Find lines with plain SKU (3-6 digits, no asterisk or other characters)
                 for (let i = 0; i < lines.length; i++) {
                     const line = lines[i];
                     
-                    // Skip lines with asterisks or other non-digit characters
                     if (!/^\d{3,6}$/.test(line)) continue;
                     
                     const sku = line;
-                    
-                    // Look ahead: next line(s) with text = description
-                    // First number after description = COUNT
                     let inDescription = false;
                     
                     for (let j = i + 1; j < Math.min(i + 15, lines.length); j++) {
                         const nextLine = lines[j];
                         
-                        // Line with letters = description
                         if (/[a-zA-Z]/.test(nextLine)) {
                             inDescription = true;
                             continue;
                         }
                         
-                        // After description, first 1-5 digit number is COUNT
                         if (inDescription && /^\d{1,5}$/.test(nextLine)) {
                             const count = parseInt(nextLine);
                             this.validSKUs.add(sku);
@@ -721,10 +825,8 @@
                 console.log('First 60 lines of carton text:');
                 lines.slice(0, 60).forEach((line, i) => console.log(`  ${i}: "${line}"`));
                 
-                // Track which 5-digit extensions have been used (these are unique per carton)
                 const usedExtensions = new Set();
                 
-                // Find all lines with "Slapper"
                 for (let i = 0; i < lines.length; i++) {
                     if (lines[i] !== "Slapper") continue;
                     
@@ -732,11 +834,9 @@
                     let barcode5 = null;
                     let sku = null;
                     
-                    // Look within range [i-8, i+8]
                     const searchStart = Math.max(0, i - 8);
                     const searchEnd = Math.min(lines.length, i + 8);
                     
-                    // Find 15-digit barcode
                     for (let j = searchStart; j < searchEnd; j++) {
                         const line = lines[j];
                         if (!barcode15 && /^0\d{14}$/.test(line)) {
@@ -745,7 +845,6 @@
                         }
                     }
                     
-                    // Find unused 5-digit extension
                     for (let j = searchStart; j < searchEnd; j++) {
                         const line = lines[j];
                         if (!barcode5 && /^\d{5}$/.test(line) && line !== "235" && !usedExtensions.has(line)) {
@@ -754,7 +853,6 @@
                         }
                     }
                     
-                    // Find SKU (prefer lines after Slapper)
                     for (let j = i + 1; j < searchEnd; j++) {
                         const line = lines[j];
                         if (!sku && /^\d{4,6}$/.test(line) && line !== barcode5 && line !== "235") {
@@ -782,7 +880,7 @@
             
             updateScanOverlay() {
                 if (Object.keys(this.cartonData).length > 0 && this.validSKUs.size > 0) {
-                    this.scanOverlay.textContent = 'Position barcode in frame';
+                    this.scanOverlay.textContent = 'Position barcode & tap button';
                 } else if (!this.apiKey) {
                     this.scanOverlay.textContent = 'Enter API key first';
                 } else {
@@ -799,8 +897,8 @@
                         this.skuCounts = {};
                         this.skuData = {};
                         this.scannedBarcodes.clear();
-                        this.lastBarcode = null;
-                        this.lastScanTime = 0;
+                        this.lastDetectedBarcode = null;
+                        this.lastDetectedTime = 0;
                         
                         localStorage.removeItem('skuCounts');
                         localStorage.removeItem('skuData');
@@ -893,7 +991,6 @@
                     this.scanOverlay.textContent = `NOT FOUND`;
                     this.showStatusMessage(`⚠️ Unknown barcode`);
                     this.playFeedbackSound(false);
-                    this.resetOverlay();
                     return;
                 }
                 
@@ -931,7 +1028,6 @@
                 this.showStatusMessage(`✓ ${sku} - ${status}`);
                 
                 this.playFeedbackSound(isValid);
-                this.resetOverlay();
             }
             
             addScan(barcode, sku, status, description, isValid, carton = null, scanCount = 1, quota = 0) {
@@ -1002,10 +1098,12 @@
             }
             
             resetOverlay() {
-                setTimeout(() => {
-                    this.scanOverlay.className = 'scan-overlay';
-                    this.scanOverlay.textContent = 'Position barcode in frame';
-                }, 2000);
+                this.scanOverlay.className = 'scan-overlay';
+                if (Object.keys(this.cartonData).length > 0 && this.validSKUs.size > 0) {
+                    this.scanOverlay.textContent = 'Position barcode & tap button';
+                } else {
+                    this.updateScanOverlay();
+                }
             }
             
             showStatusMessage(msg) {
