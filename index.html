@@ -705,51 +705,47 @@
                 console.log('First 60 lines of carton text:');
                 lines.slice(0, 60).forEach((line, i) => console.log(`  ${i}: "${line}"`));
                 
-                // Find lines with 15-digit barcode starting with 0
+                // Find all lines with "Slapper"
                 for (let i = 0; i < lines.length; i++) {
-                    const line = lines[i];
+                    if (lines[i] !== "Slapper") continue;
                     
-                    // Look for 15-digit barcode starting with 0
-                    if (!/^0\d{14}$/.test(line)) continue;
-                    
-                    const barcodePart1 = line;
-                    
-                    // Next line should be 5 digits (second part of barcode)
-                    if (i + 1 >= lines.length) continue;
-                    const nextLine = lines[i + 1];
-                    
-                    // Check if next line is 5 digits (or 3-6 digits to be flexible)
-                    const barcodePart2Match = nextLine.match(/^(\d{3,6})$/);
-                    if (!barcodePart2Match) continue;
-                    
-                    const barcodePart2 = barcodePart2Match[1];
-                    const fullBarcode = barcodePart1 + barcodePart2;
-                    
-                    // Look ahead for "Slapper" (we only want Slappers)
-                    let foundSlapper = false;
+                    // Search backwards and forwards (within 10 lines) for barcode components
+                    let barcode15 = null;
+                    let barcode5 = null;
                     let sku = null;
                     
-                    for (let j = i + 2; j < Math.min(i + 20, lines.length); j++) {
-                        const checkLine = lines[j];
+                    // Look within range [i-10, i+10]
+                    const searchStart = Math.max(0, i - 10);
+                    const searchEnd = Math.min(lines.length, i + 10);
+                    
+                    for (let j = searchStart; j < searchEnd; j++) {
+                        const line = lines[j];
                         
-                        // Look for "Slapper"
-                        if (checkLine === "Slapper") {
-                            foundSlapper = true;
-                            continue;
+                        // 15-digit barcode starting with 0
+                        if (!barcode15 && /^0\d{14}$/.test(line)) {
+                            barcode15 = line;
                         }
                         
-                        // After finding Slapper, look for SKU (4-6 digits)
-                        if (foundSlapper && /^\d{4,6}$/.test(checkLine)) {
-                            sku = checkLine;
-                            break;
+                        // 5-digit extension (must be exactly 5 digits, comes after barcode15)
+                        if (barcode15 && !barcode5 && /^\d{5}$/.test(line) && line !== barcode15) {
+                            barcode5 = line;
+                        }
+                        
+                        // SKU: 4-6 digits, but NOT the 5-digit extension
+                        if (!sku && /^\d{4,6}$/.test(line) && line !== barcode5 && line !== "235") {
+                            // Extra check: SKU usually appears after Slapper
+                            if (j > i) {
+                                sku = line;
+                            }
                         }
                     }
                     
-                    if (foundSlapper && sku) {
+                    if (barcode15 && barcode5 && sku) {
+                        const fullBarcode = barcode15 + barcode5;
                         this.cartonData[fullBarcode] = {
                             carton: fullBarcode,
                             sku: sku,
-                            desc: 'Product' // We don't need description
+                            desc: 'Product'
                         };
                         console.log(`  Found: Barcode ${fullBarcode} -> SKU ${sku}`);
                     }
