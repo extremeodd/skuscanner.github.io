@@ -705,65 +705,48 @@
                 console.log('First 60 lines of carton text:');
                 lines.slice(0, 60).forEach((line, i) => console.log(`  ${i}: "${line}"`));
                 
-                // Track which line indices have been used
-                const usedLines = new Set();
+                // Track which 5-digit extensions have been used (these are unique per carton)
+                const usedExtensions = new Set();
                 
                 // Find all lines with "Slapper"
                 for (let i = 0; i < lines.length; i++) {
-                    if (lines[i] !== "Slapper" || usedLines.has(i)) continue;
+                    if (lines[i] !== "Slapper") continue;
                     
-                    // Mark this Slapper as used
-                    usedLines.add(i);
-                    
-                    // Search nearby for unused barcode components
                     let barcode15 = null;
-                    let barcode15Index = null;
                     let barcode5 = null;
-                    let barcode5Index = null;
                     let sku = null;
-                    let skuIndex = null;
                     
                     // Look within range [i-8, i+8]
                     const searchStart = Math.max(0, i - 8);
                     const searchEnd = Math.min(lines.length, i + 8);
                     
-                    // First pass: find unused 15-digit barcode
+                    // Find 15-digit barcode
                     for (let j = searchStart; j < searchEnd; j++) {
-                        if (usedLines.has(j)) continue;
                         const line = lines[j];
-                        
                         if (!barcode15 && /^0\d{14}$/.test(line)) {
                             barcode15 = line;
-                            barcode15Index = j;
                             break;
                         }
                     }
                     
-                    // Second pass: find unused 5-digit extension (not 235, not after being used)
+                    // Find unused 5-digit extension
                     for (let j = searchStart; j < searchEnd; j++) {
-                        if (usedLines.has(j) || !barcode15) continue;
                         const line = lines[j];
-                        
-                        if (!barcode5 && /^\d{5}$/.test(line) && line !== "235") {
+                        if (!barcode5 && /^\d{5}$/.test(line) && line !== "235" && !usedExtensions.has(line)) {
                             barcode5 = line;
-                            barcode5Index = j;
                             break;
                         }
                     }
                     
-                    // Third pass: find unused SKU (prefer lines after Slapper)
+                    // Find SKU (prefer lines after Slapper)
                     for (let j = i + 1; j < searchEnd; j++) {
-                        if (usedLines.has(j)) continue;
                         const line = lines[j];
-                        
-                        if (!sku && /^\d{4,6}$/.test(line) && line !== barcode5) {
+                        if (!sku && /^\d{4,6}$/.test(line) && line !== barcode5 && line !== "235") {
                             sku = line;
-                            skuIndex = j;
                             break;
                         }
                     }
                     
-                    // If we found all components, save and mark as used
                     if (barcode15 && barcode5 && sku) {
                         const fullBarcode = barcode15 + barcode5;
                         this.cartonData[fullBarcode] = {
@@ -772,11 +755,7 @@
                             desc: 'Product'
                         };
                         
-                        // Mark all components as used
-                        usedLines.add(barcode15Index);
-                        usedLines.add(barcode5Index);
-                        usedLines.add(skuIndex);
-                        
+                        usedExtensions.add(barcode5);
                         console.log(`  Found: Barcode ${fullBarcode} -> SKU ${sku}`);
                     }
                 }
