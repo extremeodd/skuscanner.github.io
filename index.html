@@ -254,6 +254,51 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .loading-text { font-size: 14px; color: var(--text-muted); }
+
+  /* MASTER RESET */
+  .reset-zone {
+    padding: 30px 16px 120px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .master-reset-btn {
+    width: 100%;
+    max-width: 400px;
+    padding: 16px;
+    border: 2px solid var(--back-red-border);
+    border-radius: 14px;
+    background: var(--back-red-bg);
+    color: var(--back-red);
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .master-reset-btn:active {
+    background: rgba(239, 68, 68, 0.25);
+    transform: scale(0.97);
+  }
+  .reset-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+  .session-badge {
+    display: inline-block;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 4px;
+  }
+  .session-badge.has-data { border-color: var(--floor-green-border); color: var(--floor-green); }
 </style>
 </head>
 <body>
@@ -328,11 +373,18 @@
 <div class="log-container">
   <div class="log-title">
     <span>Scan History</span>
-    <button class="clear-btn" onclick="clearLog()">Reset All</button>
+    <button class="clear-btn" onclick="clearLog()">Clear History</button>
   </div>
   <div id="logList">
     <div class="log-empty">No scans yet</div>
   </div>
+</div>
+
+<!-- MASTER RESET -->
+<div class="reset-zone">
+  <div class="session-badge" id="sessionBadge">No saved session</div>
+  <button class="master-reset-btn" onclick="masterReset()">MASTER RESET</button>
+  <div class="reset-hint">Clears all data: files, scans, API key, and history</div>
 </div>
 
 <!-- LOADING -->
@@ -342,6 +394,51 @@
 </div>
 
 <script>
+// ── PERSISTENCE ──
+const STORAGE_KEY = 'freightScanner';
+
+function saveState() {
+  try {
+    const state = {
+      apiKey, backstockMap, shipmentMap, skuFromBarcode,
+      scanCounts, scanLog: scanLog.map(e => ({ ...e, time: e.time.toISOString() })),
+      backstockLoaded, shipmentLoaded
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    updateSessionBadge();
+  } catch (e) { console.warn('Save failed:', e); }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    apiKey = s.apiKey || '';
+    backstockMap = s.backstockMap || {};
+    shipmentMap = s.shipmentMap || {};
+    skuFromBarcode = s.skuFromBarcode || {};
+    scanCounts = s.scanCounts || {};
+    scanLog = (s.scanLog || []).map(e => ({ ...e, time: new Date(e.time) }));
+    backstockLoaded = s.backstockLoaded || false;
+    shipmentLoaded = s.shipmentLoaded || false;
+    return true;
+  } catch (e) { console.warn('Load failed:', e); return false; }
+}
+
+function updateSessionBadge() {
+  const badge = document.getElementById('sessionBadge');
+  const totalScans = scanLog.length;
+  const skuCount = Object.keys(backstockMap).length + Object.keys(skuFromBarcode).length;
+  if (totalScans > 0 || skuCount > 0) {
+    badge.textContent = `Session: ${totalScans} scans · ${Object.keys(skuFromBarcode).length} items loaded`;
+    badge.classList.add('has-data');
+  } else {
+    badge.textContent = 'No saved session';
+    badge.classList.remove('has-data');
+  }
+}
+
 // ── STATE ──
 let useVisionAPI = false;
 let apiKey = '';
@@ -354,6 +451,30 @@ let backstockLoaded = false;
 let shipmentLoaded = false;
 let quaggaRunning = false;
 let scanCooldown = false;
+
+// ── RESTORE SESSION ──
+const hadSavedState = loadState();
+if (hadSavedState) {
+  // Restore API key input
+  if (apiKey) document.getElementById('apiKeyInput').value = apiKey;
+
+  // Restore file button states
+  if (backstockLoaded) {
+    const btn = document.getElementById('backstockBtn');
+    btn.classList.add('loaded');
+    btn.textContent = `✓ ${Object.keys(backstockMap).length} SKUs loaded`;
+  }
+  if (shipmentLoaded) {
+    const btn = document.getElementById('shipmentBtn');
+    btn.classList.add('loaded');
+    btn.textContent = `✓ ${Object.keys(skuFromBarcode).length} items loaded`;
+  }
+
+  // Restore ready state and log
+  updateReadyState();
+  renderLog();
+  updateSessionBadge();
+}
 
 // ── AUDIO ──
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -425,6 +546,7 @@ document.getElementById('backstockFile').addEventListener('change', (e) => {
     btn.classList.add('loaded');
     btn.textContent = `✓ ${Object.keys(backstockMap).length} SKUs loaded`;
     updateReadyState();
+    saveState();
   };
   reader.readAsText(file);
 });
@@ -454,6 +576,7 @@ document.getElementById('shipmentFile').addEventListener('change', (e) => {
     btn.classList.add('loaded');
     btn.textContent = `✓ ${Object.keys(skuFromBarcode).length} items loaded`;
     updateReadyState();
+    saveState();
   };
   reader.readAsText(file);
 });
@@ -478,6 +601,7 @@ function updateReadyState() {
 // ── API KEY ──
 document.getElementById('apiKeyInput').addEventListener('input', (e) => {
   apiKey = e.target.value.trim();
+  saveState();
 });
 
 // ── MAIN SCAN BUTTON ──
@@ -745,6 +869,7 @@ function showResult(type, title, sku, tally, detail) {
 function addLogEntry(sku, scanned, total, isFloor, floorQty, backstockQty) {
   scanLog.unshift({ sku, scanned, total, isFloor, floorQty, backstockQty, time: new Date() });
   renderLog();
+  saveState();
 }
 
 function renderLog() {
@@ -770,12 +895,41 @@ function renderLog() {
 
 function clearLog() {
   if (scanLog.length === 0) return;
-  if (confirm('Reset all scan counts and history?')) {
+  if (confirm('Clear scan history and counts?\n(Files and API key will be kept)')) {
     scanLog = [];
     scanCounts = {};
     renderLog();
     document.getElementById('resultCard').className = 'result-card';
+    saveState();
   }
+}
+
+function masterReset() {
+  const msg = 'MASTER RESET\n\nThis will clear EVERYTHING:\n• Loaded files (backstock & shipment)\n• All scan history and counts\n• API key\n\nAre you sure?';
+  if (!confirm(msg)) return;
+  // Nuke localStorage
+  localStorage.removeItem(STORAGE_KEY);
+  // Reset all state
+  apiKey = '';
+  backstockMap = {};
+  shipmentMap = {};
+  skuFromBarcode = {};
+  scanCounts = {};
+  scanLog = [];
+  backstockLoaded = false;
+  shipmentLoaded = false;
+  // Reset UI
+  document.getElementById('apiKeyInput').value = '';
+  const bsBtn = document.getElementById('backstockBtn');
+  bsBtn.classList.remove('loaded');
+  bsBtn.textContent = 'Tap to load file';
+  const shBtn = document.getElementById('shipmentBtn');
+  shBtn.classList.remove('loaded');
+  shBtn.textContent = 'Tap to load file';
+  document.getElementById('resultCard').className = 'result-card';
+  renderLog();
+  updateReadyState();
+  updateSessionBadge();
 }
 
 function showLoading(show) {
