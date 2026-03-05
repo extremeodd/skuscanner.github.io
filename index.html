@@ -529,45 +529,50 @@ function toggleMode() {
 // ── PDF.js SETUP ──
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-// Group text items by Y position (rows) with tolerance
-function groupItemsByY(items, tolerance = 3) {
+// Extract text items with positions from a PDF page
+async function getPageItems(page) {
+  const tc = await page.getTextContent();
+  const vp = page.getViewport({ scale: 1 });
+  return tc.items
+    .filter(i => i.str.trim())
+    .map(i => {
+      // PDF.js transform: [scaleX, skewX, skewY, scaleY, translateX, translateY]
+      const tx = i.transform;
+      return { text: i.str.trim(), x: tx[4], y: tx[5], w: i.width };
+    });
+}
+
+// Group items by X position (records run vertically in landscape PDFs)
+function groupItemsByX(items, tolerance = 5) {
   if (!items.length) return [];
-  const sorted = items.slice().sort((a, b) => b.y - a.y); // top to bottom (PDF y is bottom-up)
+  const sorted = items.slice().sort((a, b) => a.x - b.x);
   const groups = [];
   let cur = [sorted[0]];
   for (let i = 1; i < sorted.length; i++) {
-    if (Math.abs(sorted[i].y - cur[0].y) <= tolerance) {
+    if (Math.abs(sorted[i].x - cur[0].x) <= tolerance) {
       cur.push(sorted[i]);
     } else {
-      groups.push(cur.sort((a, b) => a.x - b.x));
+      groups.push(cur);
       cur = [sorted[i]];
     }
   }
-  if (cur.length) groups.push(cur.sort((a, b) => a.x - b.x));
+  if (cur.length) groups.push(cur);
   return groups;
 }
 
-// Find the item in a row closest to a target X position within tolerance
-function findItemAtCol(row, targetX, tol = 25) {
+// Find an item in a column (same X group) closest to a target Y
+function findByY(group, targetY, tol = 20) {
   let best = null, bestD = Infinity;
-  for (const item of row) {
-    const d = Math.abs(item.x - targetX);
+  for (const item of group) {
+    const d = Math.abs(item.y - targetY);
     if (d < tol && d < bestD) { best = item; bestD = d; }
   }
   return best;
 }
 
-// Extract normalized text items from a PDF page
-async function getPageItems(page) {
-  const tc = await page.getTextContent();
-  return tc.items
-    .filter(i => i.str.trim())
-    .map(i => ({ text: i.str.trim(), x: i.transform[4], y: i.transform[5], w: i.width }));
-}
-
-// ── PARSE BACKSTOCK PDF ──
-// Columns: SKU | DESCRIPTION | COUNT | AGG SKUS | OH | IT | AD | COMP | AT | STAT
-// We need SKU (col 1) and COUNT (col 3)
+// ── PARSE BACKSTOCK PDF (landscape layout) ──
+// Each record is a vertical column. Headers define the Y positions.
+// We need: SKU (y≈720) and COUNT (y≈503-515)
 async function parseBackstockPDF(file) {
   const ab = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
@@ -576,31 +581,33 @@ async function parseBackstockPDF(file) {
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
     const items = await getPageItems(page);
-    const rows = groupItemsByY(items, 3);
 
-    let skuX = null, countX = null;
+    // Find header Y positions from items at the header X (≈61)
+    let skuY = null, countY = null;
+    for (const item of items) {
+      if (item.text === 'SKU') skuY = item.y;
+      if (item.text === 'COUNT') countY = item.y;
+    }
+    if (skuY === null || countY === null) continue;
 
-    for (const row of rows) {
-      // Detect header row
-      const skuH = row.find(i => i.text === 'SKU');
-      const cntH = row.find(i => i.text === 'COUNT');
-      if (skuH && cntH) {
-        skuX = skuH.x;
-        countX = cntH.x;
-        continue;
-      }
-      if (skuX === null || countX === null) continue;
+    // Group all items by X to get each record column
+    const columns = groupItemsByX(items, 8);
 
-      // Skip TOTALS row
-      if (row.some(i => /^TOTALS/i.test(i.text))) continue;
+    for (const col of columns) {
+      // Skip the header column itself
+      if (col.some(i => i.text === 'SKU' || i.text === 'DESCRIPTION')) continue;
+      // Skip title/metadata
+      if (col.some(i => /Harbor Freight|Item Group|TOTALS/i.test(i.text))) continue;
 
-      const skuItem = findItemAtCol(row, skuX, 15);
-      const cntItem = findItemAtCol(row, countX, 20);
-      if (!skuItem || !cntItem) continue;
+      const skuItem = findByY(col, skuY, 20);
+      const countItem = findByY(col, countY, 20);
+
+      if (!skuItem || !countItem) continue;
 
       const sku = skuItem.text;
-      const cnt = cntItem.text;
-      // Only accept pure numeric SKU and COUNT — skips asterisk rows, descriptions, agg SKU lines
+      const cnt = countItem.text;
+
+      // Only accept pure numeric SKU and COUNT
       if (/^\d+$/.test(sku) && /^\d+$/.test(cnt)) {
         result[sku] = (result[sku] || 0) + parseInt(cnt, 10);
       }
@@ -609,99 +616,87 @@ async function parseBackstockPDF(file) {
   return result;
 }
 
-// ── PARSE SHIPMENT PDF ──
-// Columns: Carton# | Carton Type | SKU | Description  (+ optional SKU Count)
-// Carton# is split across 2 lines (15 digits + 5 digits = 20 digit barcode)
-// Skip rows where SKU = "TOTE", continue if numbers resume after
+// ── PARSE SHIPMENT PDF (landscape layout) ──
+// Each record is a vertical column.
+// Carton# is split: prefix at y≈686, suffix at y≈709
+// SKU at y≈577, SKU Count at y≈110
 async function parseShipmentPDF(file) {
   const ab = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
   const barcodeToSku = {};
   const skuTotals = {};
 
+  // Header Y positions persist across pages (only defined on page 1)
+  let cartonY = null, skuY = null, skuCountY = null;
+
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
     const items = await getPageItems(page);
-    const rows = groupItemsByY(items, 3);
 
-    let cartonX = null, skuX = null, qtyX = null;
-    let pendingPrefix = null;
+    // Try to find header Y positions (usually only page 1)
+    for (const item of items) {
+      if (item.text === 'Carton#') cartonY = item.y;
+      if (item.text === 'SKU' && skuY === null) skuY = item.y;
+      if (/SKU Count/i.test(item.text)) skuCountY = item.y;
+    }
+    if (cartonY === null || skuY === null) {
+      // If still no headers found at all, skip
+      if (cartonY === null) continue;
+    }
 
-    for (const row of rows) {
-      const rowText = row.map(i => i.text).join(' ');
+    // Group by X
+    const columns = groupItemsByX(items, 8);
 
-      // Detect header row
-      const cartonH = row.find(i => i.text === 'Carton#');
-      const skuH = row.find(i => i.text === 'SKU');
-      if (cartonH && skuH) {
-        cartonX = cartonH.x;
-        skuX = skuH.x;
-        // Check for optional "SKU Count" or "Qty" column
-        const qtyH = row.find(i => /count|qty/i.test(i.text) && i.x > skuX);
-        qtyX = qtyH ? qtyH.x : null;
-        continue;
+    for (const col of columns) {
+      // Skip header and metadata columns
+      if (col.some(i => i.text === 'Carton#' || i.text === 'SKU' || /Harbor Freight|Shipment Cartons|^Page\s+\d+$/i.test(i.text))) continue;
+
+      const skuItem = findByY(col, skuY, 15);
+      if (!skuItem) continue;
+
+      const skuText = skuItem.text;
+
+      // Skip TOTE rows
+      if (/^TOTE$/i.test(skuText)) continue;
+      // Skip non-numeric SKUs
+      if (!/^\d+$/.test(skuText)) continue;
+
+      // Build carton barcode from the two halves
+      // Prefix line is around cartonY (≈686-705), suffix is nearby (≈709)
+      // They may be at slightly different X positions within the same group tolerance
+      const cartonParts = col
+        .filter(i => i.y > cartonY - 40 && i.y < cartonY + 40 && /^\d{3,}$/.test(i.text))
+        .sort((a, b) => a.y - b.y); // lower Y = further down page in PDF coords... sort ascending
+
+      let barcode = '';
+      if (cartonParts.length >= 2) {
+        // Two parts: the one nearer cartonY is prefix, the other is suffix
+        // In PDF coords, the prefix (top line visually) has LOWER y in landscape
+        // Actually let's just sort by length - prefix is 15 digits, suffix is 5
+        const longer = cartonParts.find(p => p.text.length >= 10);
+        const shorter = cartonParts.find(p => p.text.length < 10);
+        if (longer && shorter) {
+          barcode = longer.text + shorter.text;
+        } else {
+          barcode = cartonParts.map(p => p.text).join('');
+        }
+      } else if (cartonParts.length === 1) {
+        barcode = cartonParts[0].text;
       }
-      if (cartonX === null || skuX === null) continue;
 
-      // Skip "Page N" footers
-      if (/^Page\s+\d+$/i.test(rowText)) continue;
-
-      const cartonItem = findItemAtCol(row, cartonX, 25);
-      const skuItem = findItemAtCol(row, skuX, 25);
-
-      // Row with only a number near carton column = first half of split carton#
-      if (cartonItem && /^\d{10,}$/.test(cartonItem.text) && !skuItem) {
-        pendingPrefix = cartonItem.text;
-        continue;
-      }
-
-      // Full data row
-      if (skuItem) {
-        const skuText = skuItem.text;
-
-        // Skip TOTE rows
-        if (/^TOTE$/i.test(skuText)) {
-          pendingPrefix = null;
-          continue;
-        }
-
-        // Skip non-numeric SKUs
-        if (!/^\d+$/.test(skuText)) {
-          pendingPrefix = null;
-          continue;
-        }
-
-        // Build full carton barcode
-        let barcode = '';
-        if (cartonItem) {
-          barcode = cartonItem.text;
-          if (pendingPrefix) {
-            barcode = pendingPrefix + barcode;
-            pendingPrefix = null;
-          }
-        }
-
-        // Get quantity (from 5th column or default 1)
-        let qty = 1;
-        if (qtyX) {
-          const qtyItem = findItemAtCol(row, qtyX, 20);
-          if (qtyItem && /^\d+$/.test(qtyItem.text)) {
-            qty = parseInt(qtyItem.text, 10);
-          }
-        }
-
-        // Record mapping — each carton line is 1 unit
-        if (barcode) {
-          barcodeToSku[barcode] = skuText;
-        }
-        skuTotals[skuText] = (skuTotals[skuText] || 0) + qty;
-      } else {
-        // Row with no SKU match — might be continuation text, skip
-        // But check if it's a carton prefix for next iteration
-        if (cartonItem && /^\d{10,}$/.test(cartonItem.text)) {
-          pendingPrefix = cartonItem.text;
+      // Get SKU Count (default 1)
+      let qty = 1;
+      if (skuCountY) {
+        const qtyItem = findByY(col, skuCountY, 20);
+        if (qtyItem && /^\d+$/.test(qtyItem.text)) {
+          qty = parseInt(qtyItem.text, 10);
         }
       }
+
+      if (barcode) {
+        barcodeToSku[barcode] = skuText;
+      }
+      skuTotals[skuText] = (skuTotals[skuText] || 0) + qty;
     }
   }
   return { barcodeToSku, skuTotals };
