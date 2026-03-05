@@ -305,7 +305,7 @@
 <body>
 
 <header>
-  <h1><span>&#9632;</span> Freight Scanner</h1>
+  <h1><span>&#9632;</span> Freight Scanner <span style="font-size:11px;color:var(--text-muted);font-weight:500">v0.1.0</span></h1>
   <div class="header-status" id="headerStatus">No data loaded</div>
 </header>
 
@@ -572,7 +572,7 @@ function findByY(group, targetY, tol = 20) {
 
 // ── PARSE BACKSTOCK PDF (landscape layout) ──
 // Each record is a vertical column. Headers define the Y positions.
-// We need: SKU (y≈720) and COUNT (y≈503-515)
+// PDF.js coords: SKU header y≈56, data y≈38 | COUNT header y≈260, data y≈270
 async function parseBackstockPDF(file) {
   const ab = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
@@ -599,8 +599,8 @@ async function parseBackstockPDF(file) {
       // Skip title/metadata
       if (col.some(i => /Harbor Freight|Item Group|TOTALS/i.test(i.text))) continue;
 
-      const skuItem = findByY(col, skuY, 20);
-      const countItem = findByY(col, countY, 20);
+      const skuItem = findByY(col, skuY, 25);
+      const countItem = findByY(col, countY, 25);
 
       if (!skuItem || !countItem) continue;
 
@@ -618,8 +618,8 @@ async function parseBackstockPDF(file) {
 
 // ── PARSE SHIPMENT PDF (landscape layout) ──
 // Each record is a vertical column.
-// Carton# is split: prefix at y≈686, suffix at y≈709
-// SKU at y≈577, SKU Count at y≈110
+// PDF.js coords (90° rotation): Carton# header y≈57, SKU header y≈208, SKU Count header y≈627
+// Data offsets differ from headers due to font size: SKU data y≈182, SKU Count data y≈678
 async function parseShipmentPDF(file) {
   const ab = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
@@ -651,7 +651,7 @@ async function parseShipmentPDF(file) {
       // Skip header and metadata columns
       if (col.some(i => i.text === 'Carton#' || i.text === 'SKU' || /Harbor Freight|Shipment Cartons|^Page\s+\d+$/i.test(i.text))) continue;
 
-      const skuItem = findByY(col, skuY, 15);
+      const skuItem = findByY(col, skuY, 35);
       if (!skuItem) continue;
 
       const skuText = skuItem.text;
@@ -662,8 +662,8 @@ async function parseShipmentPDF(file) {
       if (!/^\d+$/.test(skuText)) continue;
 
       // Build carton barcode from the two halves
-      // Prefix line is around cartonY (≈686-705), suffix is nearby (≈709)
-      // They may be at slightly different X positions within the same group tolerance
+      // Prefix (15 digits) at y≈39, suffix (5 digits) at y≈61
+      // cartonY header is ≈57, so cartonY ± 40 covers both
       const cartonParts = col
         .filter(i => i.y > cartonY - 40 && i.y < cartonY + 40 && /^\d{3,}$/.test(i.text))
         .sort((a, b) => a.y - b.y); // lower Y = further down page in PDF coords... sort ascending
@@ -687,7 +687,7 @@ async function parseShipmentPDF(file) {
       // Get SKU Count (default 1)
       let qty = 1;
       if (skuCountY) {
-        const qtyItem = findByY(col, skuCountY, 20);
+        const qtyItem = findByY(col, skuCountY, 60);
         if (qtyItem && /^\d+$/.test(qtyItem.text)) {
           qty = parseInt(qtyItem.text, 10);
         }
