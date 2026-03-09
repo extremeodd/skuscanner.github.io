@@ -314,9 +314,6 @@
     padding: 10px 14px;
     transition: border-color 0.2s;
   }
-  .bt-scanner-row.focused {
-    border-color: var(--accent);
-  }
   .bt-scanner-row.just-scanned {
     border-color: var(--floor-green);
   }
@@ -337,38 +334,22 @@
   .bt-label {
     flex: 1;
     font-size: 13px;
-    color: var(--text-muted);
+    color: var(--text);
     font-weight: 500;
   }
   .bt-label span {
     display: block;
     font-size: 11px;
     font-weight: 400;
+    color: var(--text-muted);
     margin-top: 1px;
   }
-  .bt-label.active { color: var(--text); }
-  #btInput {
-    position: absolute;
-    left: -9999px;
-    opacity: 0;
-    width: 1px;
-    height: 1px;
-  }
-  .bt-tap-hint {
-    font-size: 10px;
-    color: var(--accent);
-    text-transform: uppercase;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    cursor: pointer;
-  }
-  .bt-tap-hint.hidden { display: none; }
 </style>
 </head>
 <body>
 
 <header>
-  <h1><span>&#9632;</span> Freight Scanner <span style="font-size:11px;color:var(--text-muted);font-weight:500">v0.2.1</span></h1>
+  <h1><span>&#9632;</span> Freight Scanner <span style="font-size:11px;color:var(--text-muted);font-weight:500">v0.2.2</span></h1>
   <div class="header-status" id="headerStatus">No data loaded</div>
 </header>
 
@@ -412,16 +393,14 @@
 
 <!-- SCANNER -->
 <div class="scan-zone">
-  <!-- Bluetooth / HID Scanner Input -->
-  <div class="bt-scanner-row" id="btRow" onclick="focusBtInput()">
-    <div class="bt-dot" id="btDot"></div>
-    <div class="bt-label" id="btLabel">
+  <!-- Bluetooth / HID Scanner Status -->
+  <div class="bt-scanner-row" id="btRow">
+    <div class="bt-dot active" id="btDot"></div>
+    <div class="bt-label active" id="btLabel">
       Bluetooth Scanner
-      <span id="btSub">Tap here to activate</span>
+      <span id="btSub">Listening — scan a barcode</span>
     </div>
-    <div class="bt-tap-hint" id="btTapHint" onclick="focusBtInput()">TAP</div>
   </div>
-  <input type="text" id="btInput" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
 
   <button class="scan-btn quagga-mode" id="scanBtn" disabled>CAMERA SCAN</button>
   <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none">
@@ -877,10 +856,6 @@ function updateReadyState() {
     status.textContent = 'Ready to scan';
     status.classList.add('ready');
     scanBtn.disabled = false;
-    // Update BT scanner hint if focused
-    if (document.getElementById('btInput') === document.activeElement) {
-      document.getElementById('btSub').textContent = 'Listening — scan a barcode';
-    }
   } else {
     const parts = [];
     if (!backstockLoaded) parts.push('backstock');
@@ -1233,53 +1208,27 @@ function showLoading(show, text) {
 // ══════════════════════════════════════
 // BLUETOOTH / HID SCANNER
 // ══════════════════════════════════════
-const btInput = document.getElementById('btInput');
+// Listen globally on the document — HID scanners type at the OS level,
+// no focused input needed. Accumulate digit keystrokes, process on Enter.
 const btDot = document.getElementById('btDot');
-const btLabel = document.getElementById('btLabel');
-const btSub = document.getElementById('btSub');
 const btRow = document.getElementById('btRow');
-const btTapHint = document.getElementById('btTapHint');
-let btFocused = false;
-
-function focusBtInput() {
-  btInput.focus();
-}
-
-btInput.addEventListener('focus', () => {
-  btFocused = true;
-  btDot.classList.add('active');
-  btLabel.classList.add('active');
-  btRow.classList.add('focused');
-  btTapHint.classList.add('hidden');
-  if (backstockLoaded && shipmentLoaded) {
-    btSub.textContent = 'Listening — scan a barcode';
-  } else {
-    btSub.textContent = 'Listening — load PDFs to process scans';
-  }
-});
-
-btInput.addEventListener('blur', () => {
-  btFocused = false;
-  btDot.classList.remove('active');
-  btDot.classList.remove('flash');
-  btLabel.classList.remove('active');
-  btRow.classList.remove('focused');
-  btRow.classList.remove('just-scanned');
-  btTapHint.classList.remove('hidden');
-  btSub.textContent = 'Tap here to activate';
-});
-
-// The scanner "types" digits then sends Enter
-// Manually accumulate scanned characters (avoids Android cursor bugs)
+const btSub = document.getElementById('btSub');
 let btBuffer = '';
 let btBufferTimer = null;
 
-btInput.addEventListener('keydown', (e) => {
+document.addEventListener('keydown', (e) => {
+  // Ignore if user is typing in an actual input field (API key, etc.)
+  const active = document.activeElement;
+  if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) {
+    return;
+  }
+  // Ignore if scanner overlay is open
+  if (quaggaRunning) return;
+
   if (e.key === 'Enter') {
     e.preventDefault();
     const code = btBuffer.trim();
     btBuffer = '';
-    btInput.value = '';
     clearTimeout(btBufferTimer);
 
     if (!code) return;
@@ -1306,26 +1255,12 @@ btInput.addEventListener('keydown', (e) => {
     processBarcode(code);
   } else if (e.key.length === 1) {
     // Single printable character — append to buffer
+    e.preventDefault();
     btBuffer += e.key;
-    btInput.value = '';
-    // Safety: clear buffer if no Enter within 3 seconds (partial scan / stale input)
+    // Safety: clear buffer if no Enter within 3 seconds
     clearTimeout(btBufferTimer);
     btBufferTimer = setTimeout(() => { btBuffer = ''; }, 3000);
   }
-});
-
-// Auto-refocus after scan result interactions or page taps
-// but NOT when user taps API key input, file buttons, or other controls
-document.addEventListener('click', (e) => {
-  const tag = e.target.tagName;
-  const id = e.target.id || '';
-  // Don't steal focus from interactive elements
-  if (tag === 'INPUT' || tag === 'BUTTON' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-  if (e.target.closest('.upload-btn') || e.target.closest('.api-input-row') || e.target.closest('.toggle-track')) return;
-  // Don't refocus if scanner overlay is open
-  if (quaggaRunning) return;
-  // Re-focus BT input
-  setTimeout(() => focusBtInput(), 50);
 });
 </script>
 </body>
