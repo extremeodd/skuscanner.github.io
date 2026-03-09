@@ -300,12 +300,75 @@
     margin-bottom: 4px;
   }
   .session-badge.has-data { border-color: var(--floor-green-border); color: var(--floor-green); }
+
+  /* BLUETOOTH SCANNER */
+  .bt-scanner-row {
+    width: 100%;
+    max-width: 400px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    transition: border-color 0.2s;
+  }
+  .bt-scanner-row.focused {
+    border-color: var(--accent);
+  }
+  .bt-scanner-row.just-scanned {
+    border-color: var(--floor-green);
+  }
+  .bt-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+    transition: background 0.2s;
+  }
+  .bt-dot.active { background: var(--accent); animation: btPulse 2s ease-in-out infinite; }
+  .bt-dot.flash { background: var(--floor-green); animation: none; }
+  @keyframes btPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .bt-label {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+  .bt-label span {
+    display: block;
+    font-size: 11px;
+    font-weight: 400;
+    margin-top: 1px;
+  }
+  .bt-label.active { color: var(--text); }
+  #btInput {
+    position: absolute;
+    left: -9999px;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+  }
+  .bt-tap-hint {
+    font-size: 10px;
+    color: var(--accent);
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+  }
+  .bt-tap-hint.hidden { display: none; }
 </style>
 </head>
 <body>
 
 <header>
-  <h1><span>&#9632;</span> Freight Scanner <span style="font-size:11px;color:var(--text-muted);font-weight:500">v0.1.0</span></h1>
+  <h1><span>&#9632;</span> Freight Scanner <span style="font-size:11px;color:var(--text-muted);font-weight:500">v0.2.0</span></h1>
   <div class="header-status" id="headerStatus">No data loaded</div>
 </header>
 
@@ -349,7 +412,18 @@
 
 <!-- SCANNER -->
 <div class="scan-zone">
-  <button class="scan-btn quagga-mode" id="scanBtn" disabled>SCAN BARCODE</button>
+  <!-- Bluetooth / HID Scanner Input -->
+  <div class="bt-scanner-row" id="btRow" onclick="focusBtInput()">
+    <div class="bt-dot" id="btDot"></div>
+    <div class="bt-label" id="btLabel">
+      Bluetooth Scanner
+      <span id="btSub">Tap here to activate</span>
+    </div>
+    <div class="bt-tap-hint" id="btTapHint" onclick="focusBtInput()">TAP</div>
+  </div>
+  <input type="text" id="btInput" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+
+  <button class="scan-btn quagga-mode" id="scanBtn" disabled>CAMERA SCAN</button>
   <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none">
   <div class="result-card" id="resultCard">
     <div class="result-type" id="resultType"></div>
@@ -803,6 +877,10 @@ function updateReadyState() {
     status.textContent = 'Ready to scan';
     status.classList.add('ready');
     scanBtn.disabled = false;
+    // Update BT scanner hint if focused
+    if (document.getElementById('btInput') === document.activeElement) {
+      document.getElementById('btSub').textContent = 'Listening — scan a barcode';
+    }
   } else {
     const parts = [];
     if (!backstockLoaded) parts.push('backstock');
@@ -1151,6 +1229,91 @@ function showLoading(show, text) {
   document.getElementById('loadingOverlay').classList.toggle('active', show);
   if (text) document.getElementById('loadingText').textContent = text;
 }
+
+// ══════════════════════════════════════
+// BLUETOOTH / HID SCANNER
+// ══════════════════════════════════════
+const btInput = document.getElementById('btInput');
+const btDot = document.getElementById('btDot');
+const btLabel = document.getElementById('btLabel');
+const btSub = document.getElementById('btSub');
+const btRow = document.getElementById('btRow');
+const btTapHint = document.getElementById('btTapHint');
+let btFocused = false;
+
+function focusBtInput() {
+  btInput.focus();
+}
+
+btInput.addEventListener('focus', () => {
+  btFocused = true;
+  btDot.classList.add('active');
+  btLabel.classList.add('active');
+  btRow.classList.add('focused');
+  btTapHint.classList.add('hidden');
+  if (backstockLoaded && shipmentLoaded) {
+    btSub.textContent = 'Listening — scan a barcode';
+  } else {
+    btSub.textContent = 'Listening — load PDFs to process scans';
+  }
+});
+
+btInput.addEventListener('blur', () => {
+  btFocused = false;
+  btDot.classList.remove('active');
+  btDot.classList.remove('flash');
+  btLabel.classList.remove('active');
+  btRow.classList.remove('focused');
+  btRow.classList.remove('just-scanned');
+  btTapHint.classList.remove('hidden');
+  btSub.textContent = 'Tap here to activate';
+});
+
+// The scanner "types" digits then sends Enter
+btInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const code = btInput.value.trim();
+    btInput.value = '';
+
+    if (!code) return;
+
+    // Resume audio
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+
+    if (!backstockLoaded || !shipmentLoaded) {
+      playWarningSound();
+      showResult('error', 'NOT READY', code, 'Load both PDF files first', '');
+      return;
+    }
+
+    // Flash the indicator green
+    btDot.classList.remove('active');
+    btDot.classList.add('flash');
+    btRow.classList.add('just-scanned');
+    setTimeout(() => {
+      btDot.classList.remove('flash');
+      btDot.classList.add('active');
+      btRow.classList.remove('just-scanned');
+    }, 400);
+
+    processBarcode(code);
+  }
+});
+
+// Auto-refocus after scan result interactions or page taps
+// but NOT when user taps API key input, file buttons, or other controls
+document.addEventListener('click', (e) => {
+  const tag = e.target.tagName;
+  const id = e.target.id || '';
+  // Don't steal focus from interactive elements
+  if (tag === 'INPUT' || tag === 'BUTTON' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  if (e.target.closest('.upload-btn') || e.target.closest('.api-input-row') || e.target.closest('.toggle-track')) return;
+  // Don't refocus if scanner overlay is open
+  if (quaggaRunning) return;
+  // Re-focus BT input
+  setTimeout(() => focusBtInput(), 50);
+});
 </script>
 </body>
 </html>
