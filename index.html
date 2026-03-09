@@ -368,7 +368,7 @@
 <body>
 
 <header>
-  <h1><span>&#9632;</span> Freight Scanner <span style="font-size:11px;color:var(--text-muted);font-weight:500">v0.2.0</span></h1>
+  <h1><span>&#9632;</span> Freight Scanner <span style="font-size:11px;color:var(--text-muted);font-weight:500">v0.2.1</span></h1>
   <div class="header-status" id="headerStatus">No data loaded</div>
 </header>
 
@@ -1270,11 +1270,17 @@ btInput.addEventListener('blur', () => {
 });
 
 // The scanner "types" digits then sends Enter
+// Manually accumulate scanned characters (avoids Android cursor bugs)
+let btBuffer = '';
+let btBufferTimer = null;
+
 btInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
-    const code = btInput.value.trim();
+    const code = btBuffer.trim();
+    btBuffer = '';
     btInput.value = '';
+    clearTimeout(btBufferTimer);
 
     if (!code) return;
 
@@ -1298,6 +1304,13 @@ btInput.addEventListener('keydown', (e) => {
     }, 400);
 
     processBarcode(code);
+  } else if (e.key.length === 1) {
+    // Single printable character — append to buffer
+    btBuffer += e.key;
+    btInput.value = '';
+    // Safety: clear buffer if no Enter within 3 seconds (partial scan / stale input)
+    clearTimeout(btBufferTimer);
+    btBufferTimer = setTimeout(() => { btBuffer = ''; }, 3000);
   }
 });
 
