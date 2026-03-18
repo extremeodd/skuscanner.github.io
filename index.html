@@ -349,7 +349,7 @@
 <body>
 
 <header>
-  <h1><span>&#9632;</span> Freight Scanner <span style="font-size:11px;color:var(--text-muted);font-weight:500">v0.2.2</span></h1>
+  <h1><span>&#9632;</span> Freight Scanner <span style="font-size:11px;color:var(--text-muted);font-weight:500">v0.3.0</span></h1>
   <div class="header-status" id="headerStatus">No data loaded</div>
 </header>
 
@@ -456,6 +456,7 @@ function saveState() {
     const state = {
       apiKey, backstockMap, shipmentMap, skuFromBarcode,
       scanCounts, scanLog: scanLog.map(e => ({ ...e, time: e.time.toISOString() })),
+      scannedBarcodes: [...scannedBarcodes],
       backstockLoaded, shipmentLoaded
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -474,6 +475,7 @@ function loadState() {
     skuFromBarcode = s.skuFromBarcode || {};
     scanCounts = s.scanCounts || {};
     scanLog = (s.scanLog || []).map(e => ({ ...e, time: new Date(e.time) }));
+    scannedBarcodes = new Set(s.scannedBarcodes || []);
     backstockLoaded = s.backstockLoaded || false;
     shipmentLoaded = s.shipmentLoaded || false;
     return true;
@@ -501,6 +503,7 @@ let shipmentMap = {};
 let skuFromBarcode = {};
 let scanCounts = {};
 let scanLog = [];
+let scannedBarcodes = new Set();
 let backstockLoaded = false;
 let shipmentLoaded = false;
 let quaggaRunning = false;
@@ -1096,6 +1099,22 @@ function processBarcode(barcodeResult) {
     return;
   }
 
+  // Duplicate carton detection — skip if this exact barcode was already scanned
+  if (!barcodeResult.startsWith('SKU:') && scannedBarcodes.has(barcodeResult)) {
+    playWarningSound();
+    const scannedSoFar = scanCounts[sku] || 0;
+    const totalArriving = shipInfo.totalQty;
+    showResult('warning', 'DUPLICATE', `SKU: ${sku}`,
+      `Already scanned this carton`,
+      `${scannedSoFar} of ${totalArriving} scanned — not counted again`);
+    return;
+  }
+
+  // Track this barcode as scanned
+  if (!barcodeResult.startsWith('SKU:')) {
+    scannedBarcodes.add(barcodeResult);
+  }
+
   if (!scanCounts[sku]) scanCounts[sku] = 0;
   scanCounts[sku]++;
 
@@ -1166,6 +1185,7 @@ function clearLog() {
   if (confirm('Clear scan history and counts?\n(Files and API key will be kept)')) {
     scanLog = [];
     scanCounts = {};
+    scannedBarcodes = new Set();
     renderLog();
     document.getElementById('resultCard').className = 'result-card';
     saveState();
@@ -1184,6 +1204,7 @@ function masterReset() {
   skuFromBarcode = {};
   scanCounts = {};
   scanLog = [];
+  scannedBarcodes = new Set();
   backstockLoaded = false;
   shipmentLoaded = false;
   // Reset UI
