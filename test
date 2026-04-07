@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Freight Scanner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0f1114;
+    --surface: #1a1d23;
+    --surface-2: #22262e;
+    --border: #2e333d;
+    --text: #e4e7ec;
+    --text-muted: #8b919e;
+    --floor-green: #22c55e;
+    --floor-green-bg: rgba(34, 197, 94, 0.12);
+    --floor-green-border: rgba(34, 197, 94, 0.3);
+    --back-red: #ef4444;
+    --back-red-bg: rgba(239, 68, 68, 0.12);
+    --back-red-border: rgba(239, 68, 68, 0.3);
+    --accent: #3b82f6;
+    --accent-bg: rgba(59, 130, 246, 0.12);
+    --accent-border: rgba(59, 130, 246, 0.3);
+    --warn-yellow: #f59e0b;
+    --warn-bg: rgba(245, 158, 11, 0.12);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: 'IBM Plex Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  header h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+  header h1 .accent { color: var(--accent); }
+  header h1 .ver { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+  .header-status { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+  .header-status.ready { color: var(--floor-green); }
+
+  .section { padding: 16px; border-bottom: 1px solid var(--border); }
+  .section-title {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1.2px; color: var(--text-muted); margin-bottom: 12px;
+  }
+
+  /* UPLOAD BUTTONS */
+  .upload-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
+  .upload-row:last-child { margin-bottom: 0; }
+  .upload-label { font-size: 13px; font-weight: 600; min-width: 90px; flex-shrink: 0; }
+  .upload-step {
+    font-size: 10px; font-weight: 700; color: var(--text-muted);
+    background: var(--surface-2); border-radius: 4px; padding: 1px 5px;
+    margin-right: 4px;
+  }
+  .upload-btn {
+    flex: 1; background: var(--surface-2); border: 1px dashed var(--border);
+    border-radius: 8px; padding: 10px 14px; color: var(--text-muted);
+    font-size: 13px; font-family: inherit; cursor: pointer; transition: all 0.15s;
+    text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .upload-btn:active { background: var(--border); }
+  .upload-btn.loaded {
+    border-style: solid; border-color: var(--floor-green-border);
+    background: var(--floor-green-bg); color: var(--floor-green);
+    animation: none !important;
+  }
+  .upload-btn.next {
+    border-style: solid; border-color: var(--accent-border);
+    animation: uploadPulse 2s ease-in-out infinite;
+  }
+  @keyframes uploadPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
+    50% { box-shadow: 0 0 10px 2px rgba(59,130,246,0.25); }
+  }
+  .upload-btn.shake { animation: shake 0.4s ease-in-out; }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+  }
+  input[type="file"] { display: none; }
+
+  /* MODE TOGGLE */
+  .mode-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .mode-label { font-size: 13px; font-weight: 500; color: var(--text); }
+  .mode-label .mode-sub { font-size: 11px; color: var(--text-muted); font-weight: 400; display: block; margin-top: 2px; }
+  .toggle-track { width: 50px; height: 28px; border-radius: 14px; background: var(--floor-green); position: relative; cursor: pointer; transition: background 0.2s; flex-shrink: 0; }
+  .toggle-track.vision { background: var(--accent); }
+  .toggle-thumb { width: 22px; height: 22px; border-radius: 50%; background: #fff; position: absolute; top: 3px; left: 3px; transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+  .toggle-track.vision .toggle-thumb { transform: translateX(22px); }
+
+  /* API KEY */
+  .api-section { overflow: hidden; max-height: 0; transition: max-height 0.3s ease, padding 0.3s ease; padding: 0 16px; border-bottom: 1px solid transparent; }
+  .api-section.visible { max-height: 100px; padding: 12px 16px 16px; border-bottom-color: var(--border); }
+  .api-input { width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-size: 13px; font-family: 'JetBrains Mono', monospace; outline: none; }
+  .api-input:focus { border-color: var(--accent); }
+  .api-input::placeholder { color: var(--text-muted); }
+
+  /* SCAN ZONE */
+  .scan-zone { padding: 20px 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .scan-btn { width: 100%; max-width: 400px; padding: 18px; border: none; border-radius: 14px; font-family: inherit; font-size: 17px; font-weight: 700; cursor: pointer; transition: all 0.15s; letter-spacing: 0.3px; background: var(--accent); color: #fff; }
+  .scan-btn.quagga-mode { background: var(--floor-green); }
+  .scan-btn:active { transform: scale(0.97); opacity: 0.9; }
+  .scan-btn:disabled { background: var(--surface-2) !important; color: var(--text-muted); cursor: not-allowed; }
+  .scan-btn:disabled:active { transform: none; opacity: 1; }
+
+  /* SCANNER OVERLAY */
+  .scanner-overlay { display: none; position: fixed; inset: 0; background: #000; z-index: 500; flex-direction: column; }
+  .scanner-overlay.active { display: flex; }
+  .scanner-header { background: rgba(0,0,0,0.8); padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; z-index: 10; }
+  .scanner-header-text { font-size: 14px; font-weight: 600; color: #fff; }
+  .scanner-close-btn { background: rgba(255,255,255,0.15); border: none; border-radius: 8px; padding: 8px 16px; color: #fff; font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; }
+  #scanner-viewport { flex: 1; position: relative; overflow: hidden; }
+  #scanner-viewport video { width: 100%; height: 100%; object-fit: cover; }
+  #scanner-viewport canvas.drawingBuffer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  .scan-guide { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; max-width: 350px; height: 120px; border: 2px solid rgba(255,255,255,0.5); border-radius: 12px; pointer-events: none; z-index: 5; transition: all 0.15s; }
+  .scan-guide::before { content: 'Align barcode here'; position: absolute; bottom: -28px; left: 50%; transform: translateX(-50%); font-size: 12px; color: rgba(255,255,255,0.6); white-space: nowrap; }
+  .scan-guide.detected { border-color: var(--floor-green); box-shadow: 0 0 20px rgba(34,197,94,0.4); }
+
+  /* RESULT CARD */
+  .result-card { display: none; width: 100%; max-width: 400px; border-radius: 14px; padding: 20px; text-align: center; animation: flashIn 0.25s ease-out; }
+  @keyframes flashIn { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+  .result-card.floor { display: block; background: var(--floor-green-bg); border: 2px solid var(--floor-green-border); }
+  .result-card.backstock { display: block; background: var(--back-red-bg); border: 2px solid var(--back-red-border); }
+  .result-card.secondary { display: block; background: var(--accent-bg); border: 2px solid var(--accent-border); }
+  .result-card.floor-secondary {
+    display: block;
+    background: linear-gradient(to right, var(--floor-green-bg), var(--accent-bg));
+    border: 2px solid var(--floor-green-border);
+    border-right-color: var(--accent-border);
+  }
+  .result-card.warning { display: block; background: var(--warn-bg); border: 2px solid rgba(245,158,11,0.3); }
+  .result-card.error { display: block; background: var(--back-red-bg); border: 2px solid var(--back-red-border); }
+  .result-type { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+  .floor .result-type { color: var(--floor-green); }
+  .backstock .result-type { color: var(--back-red); }
+  .secondary .result-type { color: var(--accent); }
+  .floor-secondary .result-type {
+    background: linear-gradient(to right, var(--floor-green), var(--accent));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .warning .result-type { color: var(--warn-yellow); }
+  .error .result-type { color: var(--back-red); }
+  .result-sku { font-family: 'JetBrains Mono', monospace; font-size: 15px; color: var(--text-muted); margin-bottom: 4px; }
+  .result-desc { font-size: 12px; color: var(--text-muted); margin-bottom: 8px; font-style: italic; max-height: 2.6em; overflow: hidden; }
+  .result-tally { font-size: 14px; color: var(--text); font-weight: 500; }
+  .result-detail { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+
+  /* SCAN LOG */
+  .log-container { padding: 0 16px 100px; }
+  .log-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); margin: 16px 0 10px; display: flex; justify-content: space-between; align-items: center; }
+  .clear-btn { font-size: 11px; font-weight: 600; color: var(--back-red); background: none; border: none; cursor: pointer; font-family: inherit; letter-spacing: 0.5px; text-transform: uppercase; }
+  .log-empty { color: var(--text-muted); font-size: 13px; text-align: center; padding: 30px 0; }
+  .log-entry { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; animation: slideIn 0.2s ease-out; }
+  @keyframes slideIn { 0% { transform: translateY(-8px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
+  .log-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .log-dot.floor { background: var(--floor-green); }
+  .log-dot.backstock { background: var(--back-red); }
+  .log-dot.secondary { background: var(--accent); }
+  .log-dot.floor-secondary { background: linear-gradient(135deg, var(--floor-green) 50%, var(--accent) 50%); }
+  .log-info { flex: 1; min-width: 0; }
+  .log-sku { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600; }
+  .log-desc { font-size: 11px; color: var(--text-muted); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .log-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .log-count { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; text-align: right; white-space: nowrap; }
+
+  /* LOADING / RESET / BT */
+  .loading-overlay { display: none; position: fixed; inset: 0; background: rgba(15,17,20,0.85); z-index: 200; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
+  .loading-overlay.active { display: flex; }
+  .spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 14px; color: var(--text-muted); }
+
+  .reset-zone { padding: 30px 16px 120px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .master-reset-btn { width: 100%; max-width: 400px; padding: 16px; border: 2px solid var(--back-red-border); border-radius: 14px; background: var(--back-red-bg); color: var(--back-red); font-family: inherit; font-size: 15px; font-weight: 700; letter-spacing: 0.5px; cursor: pointer; transition: all 0.15s; }
+  .master-reset-btn:active { background: rgba(239,68,68,0.25); transform: scale(0.97); }
+  .reset-hint { font-size: 11px; color: var(--text-muted); text-align: center; }
+  .session-badge { display: inline-block; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; margin-bottom: 4px; }
+  .session-badge.has-data { border-color: var(--floor-green-border); color: var(--floor-green); }
+
+  .bt-scanner-row { width: 100%; max-width: 400px; display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; transition: border-color 0.2s; }
+  .bt-scanner-row.just-scanned { border-color: var(--floor-green); }
+  .bt-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; transition: background 0.2s; }
+  .bt-dot.active { background: var(--accent); animation: btPulse 2s ease-in-out infinite; }
+  .bt-dot.flash { background: var(--floor-green); animation: none; }
+  @keyframes btPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .bt-label { flex: 1; font-size: 13px; color: var(--text); font-weight: 500; }
+  .bt-label span { display: block; font-size: 11px; font-weight: 400; color: var(--text-muted); margin-top: 1px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="accent">&#9632;</span> Freight Scanner <span class="ver">v0.4.0</span></h1>
+  <div class="header-status" id="headerStatus">No data loaded</div>
+</header>
+
+<!-- SCAN MODE TOGGLE -->
+<div class="section">
+  <div class="section-title">Scan Mode</div>
+  <div class="mode-row">
+    <div class="mode-label" id="modeLabel">
+      Live Barcode Scanner
+      <span class="mode-sub">QuaggaJS · ITF / Interleaved 2 of 5</span>
+    </div>
+    <div class="toggle-track" id="modeToggle" onclick="toggleMode()">
+      <div class="toggle-thumb"></div>
+    </div>
+  </div>
+</div>
+
+<!-- API KEY -->
+<div class="api-section" id="apiSection">
+  <input type="password" class="api-input mono" id="apiKeyInput" placeholder="Google Vision API key">
+</div>
+
+<!-- FILE UPLOADS — ordered: 1 Cartons, 2 Backstock, 3 Secondary -->
+<div class="section">
+  <div class="section-title">Load PDFs</div>
+  <div class="upload-row">
+    <span class="upload-label"><span class="upload-step">1</span>Cartons</span>
+    <button class="upload-btn" id="shipmentBtn" onclick="handleUploadClick('shipment')">Tap to load PDF</button>
+    <input type="file" id="shipmentFile" accept=".pdf,.txt,.csv">
+  </div>
+  <div class="upload-row">
+    <span class="upload-label"><span class="upload-step">2</span>Backstock</span>
+    <button class="upload-btn" id="backstockBtn" onclick="handleUploadClick('backstock')">Tap to load PDF</button>
+    <input type="file" id="backstockFile" accept=".pdf,.txt,.csv">
+  </div>
+  <div class="upload-row">
+    <span class="upload-label"><span class="upload-step">3</span>Secondary</span>
+    <button class="upload-btn" id="secondaryBtn" onclick="handleUploadClick('secondary')">Tap to load PDF</button>
+    <input type="file" id="secondaryFile" accept=".pdf,.txt,.csv">
+  </div>
+</div>
+
+<!-- SCANNER -->
+<div class="scan-zone">
+  <div class="bt-scanner-row" id="btRow">
+    <div class="bt-dot active" id="btDot"></div>
+    <div class="bt-label active" id="btLabel">Bluetooth Scanner<span id="btSub">Listening — scan a barcode</span></div>
+  </div>
+  <button class="scan-btn quagga-mode" id="scanBtn" disabled>CAMERA SCAN</button>
+  <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none">
+  <div class="result-card" id="resultCard">
+    <div class="result-type" id="resultType"></div>
+    <div class="result-sku mono" id="resultSku"></div>
+    <div class="result-desc" id="resultDesc"></div>
+    <div class="result-tally" id="resultTally"></div>
+    <div class="result-detail" id="resultDetail"></div>
+  </div>
+</div>
+
+<!-- LIVE SCANNER OVERLAY -->
+<div class="scanner-overlay" id="scannerOverlay">
+  <div class="scanner-header">
+    <span class="scanner-header-text" id="scannerHeaderText">Scanning for barcode...</span>
+    <button class="scanner-close-btn" onclick="stopLiveScanner()">Close</button>
+  </div>
+  <div id="scanner-viewport"><div class="scan-guide" id="scanGuide"></div></div>
+</div>
+
+<!-- SCAN LOG -->
+<div class="log-container">
+  <div class="log-title"><span>Scan History</span><button class="clear-btn" onclick="clearLog()">Clear History</button></div>
+  <div id="logList"><div class="log-empty">No scans yet</div></div>
+</div>
+
+<!-- MASTER RESET -->
+<div class="reset-zone">
+  <div class="session-badge" id="sessionBadge">No saved session</div>
+  <button class="master-reset-btn" onclick="masterReset()">MASTER RESET</button>
+  <div class="reset-hint">Clears all data: files, scans, API key, and history</div>
+</div>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">Loading...</div>
+</div>
+
+<script>
+// ══════════════════════════════════════
+// PERSISTENCE
+// ══════════════════════════════════════
+const STORAGE_KEY = 'freightScanner';
+
+function saveState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      apiKey, backstockMap, shipmentMap, skuFromBarcode, secondaryMap, skuDescriptions,
+      scanCounts, scanLog: scanLog.map(e => ({ ...e, time: e.time.toISOString() })),
+      scannedBarcodes: [...scannedBarcodes], scannedBarcodeTypes,
+      shipmentLoaded, backstockLoaded, secondaryLoaded
+    }));
+    updateSessionBadge();
+  } catch (e) { console.warn('Save failed:', e); }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    apiKey = s.apiKey || '';
+    backstockMap = s.backstockMap || {};
+    shipmentMap = s.shipmentMap || {};
+    skuFromBarcode = s.skuFromBarcode || {};
+    secondaryMap = s.secondaryMap || {};
+    skuDescriptions = s.skuDescriptions || {};
+    scanCounts = s.scanCounts || {};
+    scanLog = (s.scanLog || []).map(e => ({ ...e, time: new Date(e.time) }));
+    scannedBarcodes = new Set(s.scannedBarcodes || []);
+    scannedBarcodeTypes = s.scannedBarcodeTypes || {};
+    shipmentLoaded = s.shipmentLoaded || false;
+    backstockLoaded = s.backstockLoaded || false;
+    secondaryLoaded = s.secondaryLoaded || false;
+    return true;
+  } catch (e) { console.warn('Load failed:', e); return false; }
+}
+
+function updateSessionBadge() {
+  const badge = document.getElementById('sessionBadge');
+  const n = scanLog.length;
+  if (n > 0 || shipmentLoaded) {
+    badge.textContent = `Session: ${n} scans · ${Object.keys(skuFromBarcode).length} items`;
+    badge.classList.add('has-data');
+  } else {
+    badge.textContent = 'No saved session';
+    badge.classList.remove('has-data');
+  }
+}
+
+// ══════════════════════════════════════
+// STATE
+// ══════════════════════════════════════
+let useVisionAPI = false;
+let apiKey = '';
+let shipmentMap = {};       // SKU → { totalQty }
+let skuFromBarcode = {};    // barcode → SKU
+let skuDescriptions = {};   // SKU → description string
+let backstockMap = {};      // SKU → backstock qty
+let secondaryMap = {};      // SKU → secondary qty
+let scanCounts = {};        // SKU → scans so far
+let scanLog = [];
+let scannedBarcodes = new Set();
+let scannedBarcodeTypes = {}; // barcode → scan type for duplicate display
+let shipmentLoaded = false;
+let backstockLoaded = false;
+let secondaryLoaded = false;
+let quaggaRunning = false;
+let scanCooldown = false;
+
+// ══════════════════════════════════════
+// RESTORE SESSION
+// ══════════════════════════════════════
+const hadSavedState = loadState();
+if (hadSavedState) {
+  if (apiKey) document.getElementById('apiKeyInput').value = apiKey;
+  if (shipmentLoaded) {
+    const btn = document.getElementById('shipmentBtn');
+    btn.classList.add('loaded');
+    btn.textContent = `✓ ${Object.keys(skuFromBarcode).length} cartons · ${Object.keys(shipmentMap).length} SKUs`;
+  }
+  if (backstockLoaded) {
+    const btn = document.getElementById('backstockBtn');
+    btn.classList.add('loaded');
+    btn.textContent = `✓ ${Object.keys(backstockMap).length} SKUs`;
+  }
+  if (secondaryLoaded) {
+    const btn = document.getElementById('secondaryBtn');
+    btn.classList.add('loaded');
+    btn.textContent = `✓ ${Object.keys(secondaryMap).length} SKUs`;
+  }
+  updateReadyState();
+  renderLog();
+  updateSessionBadge();
+}
+updateUploadOrder();
+
+// ══════════════════════════════════════
+// AUDIO
+// ══════════════════════════════════════
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playTone(freq, duration, type, vol = 0.3) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.start(); osc.stop(audioCtx.currentTime + duration);
+}
+
+function playFloorSound() {
+  playTone(880, 0.12, 'sine', 0.35);
+  setTimeout(() => playTone(1174, 0.18, 'sine', 0.35), 100);
+}
+function playBackstockSound() {
+  playTone(330, 0.2, 'square', 0.2);
+  setTimeout(() => playTone(220, 0.35, 'square', 0.2), 180);
+}
+function playSecondarySound() {
+  playTone(660, 0.1, 'sine', 0.3);
+  setTimeout(() => playTone(880, 0.1, 'sine', 0.3), 100);
+  setTimeout(() => playTone(1047, 0.15, 'sine', 0.3), 200);
+}
+function playFloorSecondarySound() {
+  playTone(880, 0.1, 'sine', 0.35);
+  setTimeout(() => playTone(1174, 0.12, 'sine', 0.35), 80);
+  setTimeout(() => playTone(1047, 0.18, 'sine', 0.25), 260);
+}
+function playWarningSound() {
+  playTone(500, 0.08, 'triangle', 0.25);
+  setTimeout(() => playTone(500, 0.08, 'triangle', 0.25), 150);
+  setTimeout(() => playTone(500, 0.08, 'triangle', 0.25), 300);
+}
+
+// ══════════════════════════════════════
+// MODE TOGGLE
+// ══════════════════════════════════════
+function toggleMode() {
+  useVisionAPI = !useVisionAPI;
+  const track = document.getElementById('modeToggle');
+  const label = document.getElementById('modeLabel');
+  const apiSec = document.getElementById('apiSection');
+  const scanBtn = document.getElementById('scanBtn');
+  if (useVisionAPI) {
+    track.classList.add('vision');
+    label.innerHTML = 'Google Vision API<span class="mode-sub">Camera capture · OCR fallback</span>';
+    apiSec.classList.add('visible');
+    scanBtn.classList.remove('quagga-mode');
+  } else {
+    track.classList.remove('vision');
+    label.innerHTML = 'Live Barcode Scanner<span class="mode-sub">QuaggaJS · ITF / Interleaved 2 of 5</span>';
+    apiSec.classList.remove('visible');
+    scanBtn.classList.add('quagga-mode');
+  }
+}
+
+// ══════════════════════════════════════
+// PDF PARSING
+// ══════════════════════════════════════
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+async function getPageItems(page) {
+  const tc = await page.getTextContent();
+  return tc.items.filter(i => i.str.trim()).map(i => ({
+    text: i.str.trim(), x: i.transform[4], y: i.transform[5], w: i.width
+  }));
+}
+
+function groupItemsByX(items, tolerance = 5) {
+  if (!items.length) return [];
+  const sorted = items.slice().sort((a, b) => a.x - b.x);
+  const groups = []; let cur = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    if (Math.abs(sorted[i].x - cur[0].x) <= tolerance) cur.push(sorted[i]);
+    else { groups.push(cur); cur = [sorted[i]]; }
+  }
+  if (cur.length) groups.push(cur);
+  return groups;
+}
+
+function findByY(group, targetY, tol = 20) {
+  let best = null, bestD = Infinity;
+  for (const item of group) {
+    const d = Math.abs(item.y - targetY);
+    if (d < tol && d < bestD) { best = item; bestD = d; }
+  }
+  return best;
+}
+
+// ── Backstock / Secondary Item Group PDF ──
+async function parseItemGroupPDF(file) {
+  const ab = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+  const result = {};
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const items = await getPageItems(page);
+    let skuY = null, countY = null;
+    for (const item of items) {
+      if (item.text === 'SKU') skuY = item.y;
+      if (item.text === 'COUNT') countY = item.y;
+    }
+    if (skuY === null || countY === null) continue;
+    const columns = groupItemsByX(items, 8);
+    for (const col of columns) {
+      if (col.some(i => i.text === 'SKU' || i.text === 'DESCRIPTION')) continue;
+      if (col.some(i => /Harbor Freight|Item Group|TOTALS/i.test(i.text))) continue;
+      const skuItem = findByY(col, skuY, 25);
+      const countItem = findByY(col, countY, 25);
+      if (!skuItem || !countItem) continue;
+      if (/^\d+$/.test(skuItem.text) && /^\d+$/.test(countItem.text)) {
+        result[skuItem.text] = (result[skuItem.text] || 0) + parseInt(countItem.text, 10);
+      }
+    }
+  }
+  return result;
+}
+
+// ── Shipment Cartons PDF (also extracts descriptions) ──
+async function parseShipmentPDF(file) {
+  const ab = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+  const barcodeToSku = {};
+  const skuTotals = {};
+  const descriptions = {};
+  let cartonY = null, skuY = null, skuCountY = null, descY = null;
+
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const items = await getPageItems(page);
+    for (const item of items) {
+      if (item.text === 'Carton#') cartonY = item.y;
+      if (item.text === 'SKU' && skuY === null) skuY = item.y;
+      if (/^Description$/i.test(item.text)) descY = item.y;
+      if (/SKU Count/i.test(item.text)) skuCountY = item.y;
+    }
+    if (cartonY === null) continue;
+
+    const columns = groupItemsByX(items, 8);
+    for (const col of columns) {
+      if (col.some(i => i.text === 'Carton#' || i.text === 'SKU' || /Harbor Freight|Shipment Cartons|^Page\s+\d+$/i.test(i.text))) continue;
+      const skuItem = findByY(col, skuY, 35);
+      if (!skuItem) continue;
+      if (/^TOTE$/i.test(skuItem.text) || !/^\d+$/.test(skuItem.text)) continue;
+
+      const skuText = skuItem.text;
+
+      // Extract description: non-numeric items between SKU and SKU Count Y ranges
+      if (descY && !descriptions[skuText]) {
+        const descItems = col.filter(i =>
+          i.y > (descY - 70) && i.y < (skuCountY ? skuCountY - 50 : descY + 300) &&
+          /[a-zA-Z]/.test(i.text) && !/^Slapper$/i.test(i.text) && !/^TOTE$/i.test(i.text)
+        );
+        if (descItems.length > 0) {
+          descriptions[skuText] = descItems.map(d => d.text).join(' ');
+        }
+      }
+
+      // Carton barcode
+      const cartonParts = col
+        .filter(i => i.y > cartonY - 40 && i.y < cartonY + 40 && /^\d{3,}$/.test(i.text))
+        .sort((a, b) => a.y - b.y);
+      let barcode = '';
+      if (cartonParts.length >= 2) {
+        const longer = cartonParts.find(p => p.text.length >= 10);
+        const shorter = cartonParts.find(p => p.text.length < 10);
+        barcode = (longer && shorter) ? longer.text + shorter.text : cartonParts.map(p => p.text).join('');
+      } else if (cartonParts.length === 1) barcode = cartonParts[0].text;
+
+      let qty = 1;
+      if (skuCountY) {
+        const qtyItem = findByY(col, skuCountY, 60);
+        if (qtyItem && /^\d+$/.test(qtyItem.text)) qty = parseInt(qtyItem.text, 10);
+      }
+
+      if (barcode) barcodeToSku[barcode] = skuText;
+      skuTotals[skuText] = (skuTotals[skuText] || 0) + qty;
+    }
+  }
+  return { barcodeToSku, skuTotals, descriptions };
+}
+
+// ── Legacy text fallbacks ──
+function parseItemGroupText(text) {
+  const r = {};
+  for (const line of text.trim().split('\n')) {
+    const p = line.trim().split(',');
+    if (p.length >= 2) { const s = p[0].trim(), q = parseInt(p[1].trim(), 10); if (s && !isNaN(q)) r[s] = (r[s] || 0) + q; }
+  }
+  return r;
+}
+function parseShipmentText(text) {
+  const b = {}, t = {}, d = {};
+  for (const line of text.trim().split('\n')) {
+    const p = line.trim().split(',');
+    if (p.length >= 3) {
+      const bc = p[0].trim(), s = p[1].trim(), q = parseInt(p[2].trim(), 10);
+      if (bc && s && !isNaN(q)) { b[bc] = s; t[s] = (t[s] || 0) + q; }
+    }
+  }
+  return { barcodeToSku: b, skuTotals: t, descriptions: d };
+}
+
+// ══════════════════════════════════════
+// UPLOAD ORDERING
+// ══════════════════════════════════════
+function updateUploadOrder() {
+  ['shipmentBtn', 'backstockBtn', 'secondaryBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (!btn.classList.contains('loaded')) btn.classList.remove('next');
+  });
+  if (!shipmentLoaded) {
+    document.getElementById('shipmentBtn').classList.add('next');
+  } else if (!backstockLoaded) {
+    document.getElementById('backstockBtn').classList.add('next');
+  } else if (!secondaryLoaded) {
+    document.getElementById('secondaryBtn').classList.add('next');
+  }
+}
+
+function shakeBtn(id) {
+  const btn = document.getElementById(id);
+  btn.classList.remove('shake');
+  void btn.offsetWidth; // reflow
+  btn.classList.add('shake');
+  setTimeout(() => btn.classList.remove('shake'), 500);
+}
+
+function handleUploadClick(which) {
+  if (which === 'backstock' && !shipmentLoaded) { shakeBtn('shipmentBtn'); return; }
+  if (which === 'secondary' && !shipmentLoaded) { shakeBtn('shipmentBtn'); return; }
+  if (which === 'secondary' && !backstockLoaded) { shakeBtn('backstockBtn'); return; }
+  document.getElementById(which === 'shipment' ? 'shipmentFile' : which === 'backstock' ? 'backstockFile' : 'secondaryFile').click();
+}
+
+// ══════════════════════════════════════
+// FILE UPLOAD HANDLERS
+// ══════════════════════════════════════
+document.getElementById('shipmentFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  showLoading(true, 'Parsing cartons report...');
+  try {
+    let parsed;
+    if (file.name.toLowerCase().endsWith('.pdf')) parsed = await parseShipmentPDF(file);
+    else { const text = await file.text(); parsed = parseShipmentText(text); }
+    skuFromBarcode = parsed.barcodeToSku;
+    skuDescriptions = parsed.descriptions || {};
+    shipmentMap = {};
+    for (const [sku, total] of Object.entries(parsed.skuTotals)) shipmentMap[sku] = { totalQty: total };
+    shipmentLoaded = true;
+    const btn = document.getElementById('shipmentBtn');
+    btn.classList.add('loaded'); btn.classList.remove('next');
+    btn.textContent = `✓ ${Object.keys(skuFromBarcode).length} cartons · ${Object.keys(shipmentMap).length} SKUs`;
+    updateReadyState(); updateUploadOrder(); saveState();
+  } catch (err) { console.error(err); alert('Error parsing cartons file:\n' + err.message); }
+  showLoading(false);
+});
+
+document.getElementById('backstockFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  showLoading(true, 'Parsing backstock item group...');
+  try {
+    if (file.name.toLowerCase().endsWith('.pdf')) backstockMap = await parseItemGroupPDF(file);
+    else backstockMap = parseItemGroupText(await file.text());
+    backstockLoaded = true;
+    const btn = document.getElementById('backstockBtn');
+    btn.classList.add('loaded'); btn.classList.remove('next');
+    btn.textContent = `✓ ${Object.keys(backstockMap).length} SKUs`;
+    updateReadyState(); updateUploadOrder(); saveState();
+  } catch (err) { console.error(err); alert('Error parsing backstock file:\n' + err.message); }
+  showLoading(false);
+});
+
+document.getElementById('secondaryFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  showLoading(true, 'Parsing secondary item group...');
+  try {
+    let raw;
+    if (file.name.toLowerCase().endsWith('.pdf')) raw = await parseItemGroupPDF(file);
+    else raw = parseItemGroupText(await file.text());
+    // Only keep SKUs that are on the truck manifest
+    secondaryMap = {};
+    for (const [sku, qty] of Object.entries(raw)) {
+      if (shipmentMap[sku]) secondaryMap[sku] = qty;
+    }
+    secondaryLoaded = true;
+    const btn = document.getElementById('secondaryBtn');
+    btn.classList.add('loaded'); btn.classList.remove('next');
+    btn.textContent = `✓ ${Object.keys(secondaryMap).length} SKUs`;
+    updateReadyState(); updateUploadOrder(); saveState();
+  } catch (err) { console.error(err); alert('Error parsing secondary file:\n' + err.message); }
+  showLoading(false);
+});
+
+function updateReadyState() {
+  const status = document.getElementById('headerStatus');
+  const scanBtn = document.getElementById('scanBtn');
+  if (shipmentLoaded && backstockLoaded) {
+    status.textContent = secondaryLoaded ? 'Ready to scan (with secondaries)' : 'Ready to scan';
+    status.classList.add('ready');
+    scanBtn.disabled = false;
+  } else {
+    const parts = [];
+    if (!shipmentLoaded) parts.push('cartons');
+    if (!backstockLoaded) parts.push('backstock');
+    status.textContent = `Need: ${parts.join(', ')}`;
+    status.classList.remove('ready');
+    scanBtn.disabled = true;
+  }
+}
+
+// ── API KEY ──
+document.getElementById('apiKeyInput').addEventListener('input', (e) => { apiKey = e.target.value.trim(); saveState(); });
+
+// ── CAMERA SCAN BUTTON ──
+document.getElementById('scanBtn').addEventListener('click', () => {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (useVisionAPI) {
+    if (!apiKey) { showResult('error', 'NO API KEY', '', '', 'Enter your Google Vision API key above', ''); return; }
+    document.getElementById('cameraInput').click();
+  } else startLiveScanner();
+});
+
+// ══════════════════════════════════════
+// QUAGGA LIVE SCANNER
+// ══════════════════════════════════════
+function startLiveScanner() {
+  document.getElementById('scannerOverlay').classList.add('active');
+  document.getElementById('scanGuide').classList.remove('detected');
+  document.getElementById('scannerHeaderText').textContent = 'Scanning for barcode...';
+  Quagga.init({
+    inputStream: { name: "Live", type: "LiveStream", target: document.getElementById('scanner-viewport'), constraints: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } },
+    decoder: { readers: ["i2of5_reader","code_128_reader","ean_reader","ean_8_reader","upc_reader","upc_e_reader"], multiple: false },
+    locate: true, frequency: 10
+  }, (err) => {
+    if (err) { document.getElementById('scannerOverlay').classList.remove('active'); playWarningSound(); showResult('error', 'CAMERA ERROR', '', '', err.message || 'Could not access camera', ''); return; }
+    Quagga.start(); quaggaRunning = true;
+  });
+  Quagga.onDetected(onBarcodeDetected);
+}
+let lastDetectedCode = '', confirmCount = 0;
+const CONFIRM_THRESHOLD = 3;
+function onBarcodeDetected(result) {
+  if (scanCooldown) return;
+  const code = result.codeResult.code;
+  if (!code || code.length < 4) return;
+  const errors = result.codeResult.decodedCodes?.filter(d => d.error !== undefined)?.map(d => d.error) || [];
+  const avgError = errors.length > 0 ? errors.reduce((a, b) => a + b, 0) / errors.length : 1;
+  if (avgError > 0.3) return;
+  if (code === lastDetectedCode) confirmCount++; else { lastDetectedCode = code; confirmCount = 1; }
+  if (confirmCount < CONFIRM_THRESHOLD) return;
+  confirmCount = 0; lastDetectedCode = ''; scanCooldown = true;
+  setTimeout(() => { scanCooldown = false; }, 1500);
+  document.getElementById('scanGuide').classList.add('detected');
+  document.getElementById('scannerHeaderText').textContent = `Detected: ${code}`;
+  setTimeout(() => { document.getElementById('scanGuide').classList.remove('detected'); stopLiveScanner(); processBarcode(code); }, 400);
+}
+function stopLiveScanner() {
+  if (quaggaRunning) { Quagga.offDetected(onBarcodeDetected); Quagga.stop(); quaggaRunning = false; }
+  document.getElementById('scannerOverlay').classList.remove('active');
+  lastDetectedCode = ''; confirmCount = 0;
+}
+
+// ══════════════════════════════════════
+// GOOGLE VISION API
+// ══════════════════════════════════════
+document.getElementById('cameraInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  showLoading(true, 'Analyzing with Vision API...');
+  try { const b64 = await fileToBase64(file); const bc = await detectBarcodeVision(b64); showLoading(false); processBarcode(bc); }
+  catch (err) { showLoading(false); playWarningSound(); showResult('error', 'SCAN FAILED', '', '', err.message, ''); }
+  e.target.value = '';
+});
+function fileToBase64(file) {
+  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.onerror = () => rej(new Error('Could not read image')); r.readAsDataURL(file); });
+}
+async function detectBarcodeVision(base64Image) {
+  const resp = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requests: [{ image: { content: base64Image }, features: [{ type: 'TEXT_DETECTION', maxResults: 5 }] }] })
+  });
+  if (!resp.ok) { const e = await resp.json().catch(() => ({})); throw new Error(e.error?.message || `API error: ${resp.status}`); }
+  const data = await resp.json();
+  const ann = data.responses?.[0]?.textAnnotations;
+  if (!ann?.length) throw new Error('No text detected.');
+  const full = ann[0]?.description || '';
+  const texts = ann.slice(1).map(a => a.description.trim());
+  for (const t of texts) { const c = t.replace(/\s/g, ''); if (skuFromBarcode[c]) return c; }
+  for (const n of (full.match(/\d{10,25}/g) || [])) { if (skuFromBarcode[n]) return n; for (const k of Object.keys(skuFromBarcode)) { if (n.includes(k) || k.includes(n)) return k; } }
+  for (const n of (full.match(/\d{4,9}/g) || [])) { if (shipmentMap[n]) return `SKU:${n}`; }
+  throw new Error('No matching barcode.');
+}
+
+// ══════════════════════════════════════
+// PROCESS BARCODE (core logic)
+// ══════════════════════════════════════
+function processBarcode(barcodeResult) {
+  let sku;
+  if (barcodeResult.startsWith('SKU:')) sku = barcodeResult.substring(4);
+  else sku = skuFromBarcode[barcodeResult];
+
+  if (!sku) { playWarningSound(); showResult('warning', 'NOT FOUND', barcodeResult, '', 'Barcode not in shipment list', ''); return; }
+
+  const shipInfo = shipmentMap[sku];
+  if (!shipInfo) { playWarningSound(); showResult('warning', 'NO SHIPMENT DATA', sku, '', 'SKU not in shipment list', ''); return; }
+
+  const desc = skuDescriptions[sku] || '';
+  const totalArriving = shipInfo.totalQty;
+
+  // ── DUPLICATE CHECK ──
+  if (!barcodeResult.startsWith('SKU:') && scannedBarcodes.has(barcodeResult)) {
+    playWarningSound();
+    const origType = scannedBarcodeTypes[barcodeResult] || 'unknown';
+    const typeLabels = { floor: 'Floor Stock', backstock: 'Backstock', secondary: 'Secondary', 'floor-secondary': 'Floor + Secondary' };
+    const origLabel = typeLabels[origType] || origType;
+    const scannedSoFar = scanCounts[sku] || 0;
+    showResult('warning', 'DUPLICATE', `SKU: ${sku}`, desc,
+      `Already scanned — was: ${origLabel}`,
+      `${scannedSoFar} of ${totalArriving} scanned — not counted again`);
+    return;
+  }
+
+  // Track barcode
+  if (!barcodeResult.startsWith('SKU:')) scannedBarcodes.add(barcodeResult);
+
+  if (!scanCounts[sku]) scanCounts[sku] = 0;
+  scanCounts[sku]++;
+  const scannedSoFar = scanCounts[sku];
+
+  const backstockQty = backstockMap[sku] || 0;
+  const secondaryQty = secondaryMap[sku] || 0;
+  const floorTotal = Math.max(0, totalArriving - backstockQty);
+
+  let scanType;
+
+  if (backstockQty > 0) {
+    // Has backstock: Floor → Secondary (dedicated) → Backstock
+    const secondaryApplicable = Math.min(secondaryQty, floorTotal);
+    const pureFloor = floorTotal - secondaryApplicable;
+
+    if (scannedSoFar <= pureFloor) scanType = 'floor';
+    else if (scannedSoFar <= pureFloor + secondaryApplicable) scanType = 'secondary';
+    else scanType = 'backstock';
+  } else {
+    // No backstock: all floor. Last N (=secondary count) are floor+secondary
+    const secondaryApplicable = Math.min(secondaryQty, totalArriving);
+    const pureFloor = totalArriving - secondaryApplicable;
+
+    if (scannedSoFar <= pureFloor) scanType = 'floor';
+    else scanType = 'floor-secondary';
+  }
+
+  // Store for duplicate display
+  if (!barcodeResult.startsWith('SKU:')) scannedBarcodeTypes[barcodeResult] = scanType;
+
+  // ── Build detail strings ──
+  const parts = [`${floorTotal}F`];
+  if (secondaryQty > 0) parts.push(`${secondaryQty}S`);
+  parts.push(`${backstockQty}B`);
+  const breakdown = parts.join(' / ');
+
+  switch (scanType) {
+    case 'floor':
+      playFloorSound();
+      showResult('floor', 'FLOOR STOCK', `SKU: ${sku}`, desc,
+        `Scan ${scannedSoFar} of ${totalArriving}`,
+        `${breakdown}`);
+      break;
+    case 'secondary':
+      playSecondarySound();
+      showResult('secondary', 'SECONDARY', `SKU: ${sku}`, desc,
+        `Scan ${scannedSoFar} of ${totalArriving}`,
+        `Fill secondary location · ${breakdown}`);
+      break;
+    case 'floor-secondary':
+      playFloorSecondarySound();
+      showResult('floor-secondary', 'FLOOR + SECONDARY', `SKU: ${sku}`, desc,
+        `Scan ${scannedSoFar} of ${totalArriving}`,
+        `Goes to floor — also fill secondary · ${breakdown}`);
+      break;
+    case 'backstock':
+      playBackstockSound();
+      showResult('backstock', 'BACKSTOCK', `SKU: ${sku}`, desc,
+        `Scan ${scannedSoFar} of ${totalArriving}`,
+        `${breakdown}`);
+      break;
+  }
+
+  addLogEntry(sku, scannedSoFar, totalArriving, scanType, desc, floorTotal, secondaryQty, backstockQty);
+}
+
+// ══════════════════════════════════════
+// UI HELPERS
+// ══════════════════════════════════════
+function showResult(type, title, sku, desc, tally, detail) {
+  const card = document.getElementById('resultCard');
+  card.className = `result-card ${type}`;
+  document.getElementById('resultType').textContent = title;
+  document.getElementById('resultSku').textContent = sku;
+  document.getElementById('resultDesc').textContent = desc;
+  document.getElementById('resultTally').textContent = tally;
+  document.getElementById('resultDetail').textContent = detail;
+  card.style.animation = 'none'; card.offsetHeight; card.style.animation = '';
+}
+
+function addLogEntry(sku, scanned, total, scanType, desc, floorQty, secQty, bsQty) {
+  scanLog.unshift({ sku, scanned, total, scanType, desc, floorQty, secQty, bsQty, time: new Date() });
+  renderLog();
+  saveState();
+}
+
+function renderLog() {
+  const c = document.getElementById('logList');
+  if (scanLog.length === 0) { c.innerHTML = '<div class="log-empty">No scans yet</div>'; return; }
+  const typeLabels = { floor: 'FLR', backstock: 'BKS', secondary: 'SEC', 'floor-secondary': 'F+S' };
+  c.innerHTML = scanLog.map((e, i) => {
+    const lbl = typeLabels[e.scanType] || (e.isFloor ? 'FLR' : 'BKS'); // backward compat
+    const cls = e.scanType || (e.isFloor ? 'floor' : 'backstock');
+    const t = e.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const descHtml = e.desc ? `<div class="log-desc">${e.desc}</div>` : '';
+    const parts = [`${e.floorQty || 0}F`];
+    if (e.secQty) parts.push(`${e.secQty}S`);
+    parts.push(`${e.bsQty || e.backstockQty || 0}B`);
+    return `<div class="log-entry"${i === 0 ? ' style="animation:slideIn .2s ease-out"' : ''}>
+      <div class="log-dot ${cls}"></div>
+      <div class="log-info">
+        <div class="log-sku">${e.sku}</div>
+        ${descHtml}
+        <div class="log-meta">${lbl} · ${t} · ${parts.join('/')}</div>
+      </div>
+      <div class="log-count mono">${e.scanned}/${e.total}</div>
+    </div>`;
+  }).join('');
+}
+
+function clearLog() {
+  if (scanLog.length === 0) return;
+  if (confirm('Clear scan history and counts?\n(Files and API key will be kept)')) {
+    scanLog = []; scanCounts = {}; scannedBarcodes = new Set(); scannedBarcodeTypes = {};
+    renderLog(); document.getElementById('resultCard').className = 'result-card'; saveState();
+  }
+}
+
+function masterReset() {
+  if (!confirm('MASTER RESET\n\nThis will clear EVERYTHING:\n• All loaded files\n• All scan history and counts\n• API key\n\nAre you sure?')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  apiKey = ''; backstockMap = {}; shipmentMap = {}; skuFromBarcode = {}; secondaryMap = {}; skuDescriptions = {};
+  scanCounts = {}; scanLog = []; scannedBarcodes = new Set(); scannedBarcodeTypes = {};
+  shipmentLoaded = false; backstockLoaded = false; secondaryLoaded = false;
+  document.getElementById('apiKeyInput').value = '';
+  ['shipmentBtn', 'backstockBtn', 'secondaryBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    btn.classList.remove('loaded'); btn.textContent = 'Tap to load PDF';
+  });
+  document.getElementById('resultCard').className = 'result-card';
+  renderLog(); updateReadyState(); updateUploadOrder(); updateSessionBadge();
+}
+
+function showLoading(show, text) {
+  document.getElementById('loadingOverlay').classList.toggle('active', show);
+  if (text) document.getElementById('loadingText').textContent = text;
+}
+
+// ══════════════════════════════════════
+// BLUETOOTH / HID SCANNER
+// ══════════════════════════════════════
+const btDot = document.getElementById('btDot');
+const btRow = document.getElementById('btRow');
+let btBuffer = '';
+let btBufferTimer = null;
+
+document.addEventListener('keydown', (e) => {
+  const active = document.activeElement;
+  if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return;
+  if (quaggaRunning) return;
+
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const code = btBuffer.trim(); btBuffer = ''; clearTimeout(btBufferTimer);
+    if (!code) return;
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    if (!shipmentLoaded || !backstockLoaded) {
+      playWarningSound();
+      showResult('error', 'NOT READY', code, '', 'Load cartons and backstock PDFs first', '');
+      return;
+    }
+    btDot.classList.remove('active'); btDot.classList.add('flash');
+    btRow.classList.add('just-scanned');
+    setTimeout(() => { btDot.classList.remove('flash'); btDot.classList.add('active'); btRow.classList.remove('just-scanned'); }, 400);
+    processBarcode(code);
+  } else if (e.key.length === 1) {
+    e.preventDefault();
+    btBuffer += e.key;
+    clearTimeout(btBufferTimer);
+    btBufferTimer = setTimeout(() => { btBuffer = ''; }, 3000);
+  }
+});
+</script>
+</body>
+</html>
